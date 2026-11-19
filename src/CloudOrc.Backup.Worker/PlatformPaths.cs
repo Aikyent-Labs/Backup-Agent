@@ -15,6 +15,13 @@ public static class PlatformPaths
 
     public static char Separator => Path.DirectorySeparatorChar;
 
+    /// <summary>
+    /// macOS ships /var, /tmp and /etc as symlinks into /private. They belong to the OS and are safe to
+    /// pass through; any other link on a restore path is still refused.
+    /// </summary>
+    public static bool IsOsSystemLink(string path) =>
+        OperatingSystem.IsMacOS() && Path.TrimEndingDirectorySeparator(path) is "/var" or "/tmp" or "/etc";
+
     /// <summary>True when the agent can take an OS snapshot of a volume (Windows VSS only today).</summary>
     public static bool SnapshotsSupported => OperatingSystem.IsWindows();
 

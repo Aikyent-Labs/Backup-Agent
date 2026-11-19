@@ -79,7 +79,8 @@ public sealed class ProcessResourceSampler(Func<Process?> resolveProcess)
             var processId = process.Id;
             var cpuTime = process.TotalProcessorTime;
             var workingSetBytes = process.WorkingSet64;
-            var privateMemoryBytes = process.PrivateMemorySize64;
+            // macOS does not report private bytes (0): use the working set there.
+            var privateMemoryBytes = process.PrivateMemorySize64 > 0 ? process.PrivateMemorySize64 : process.WorkingSet64;
             var now = DateTime.UtcNow;
 
             double? cpuPercent = null;

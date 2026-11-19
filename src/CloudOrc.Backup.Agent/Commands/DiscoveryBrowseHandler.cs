@@ -261,7 +261,9 @@ public sealed class DiscoveryBrowseHandler : ITypedCommandHandler
         {
             try
             {
-                if (current.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                // macOS: /var, /tmp and /etc are OS symlinks into /private, not user-made links.
+                if (current.Attributes.HasFlag(FileAttributes.ReparsePoint)
+                    && !(OperatingSystem.IsMacOS() && current.FullName.TrimEnd('/') is "/var" or "/tmp" or "/etc"))
                 {
                     return true;
                 }

@@ -20,7 +20,7 @@ public class ControlAgentHealthClientTests
     {
         var options = new WatchdogOptions
         {
-            HealthPipeName = $"CloudOrc.Tests.NoServer.{Guid.NewGuid():N}",
+            HealthPipeName = $"cot.ns.{Guid.NewGuid():N}"[..16],
             HealthCheckTimeoutSeconds = 1
         };
         var client = new ControlAgentHealthClient(options, NullLogger<ControlAgentHealthClient>.Instance);
@@ -33,7 +33,7 @@ public class ControlAgentHealthClientTests
     [Fact]
     public async Task TryGetHealthAsync_ServerRespondsWithSnapshot_ParsesItCorrectly()
     {
-        var pipeName = $"CloudOrc.Tests.Server.{Guid.NewGuid():N}";
+        var pipeName = $"cot.sv.{Guid.NewGuid():N}"[..16];
         var options = new WatchdogOptions { HealthPipeName = pipeName, HealthCheckTimeoutSeconds = 5 };
         var client = new ControlAgentHealthClient(options, NullLogger<ControlAgentHealthClient>.Instance);
 

@@ -108,7 +108,7 @@ public static class RestorePathGuard
                 return; // the rest will be created by the restore
             }
 
-            if (File.GetAttributes(current).HasFlag(FileAttributes.ReparsePoint))
+            if (File.GetAttributes(current).HasFlag(FileAttributes.ReparsePoint) && !PlatformPaths.IsOsSystemLink(current))
             {
                 throw new RestoreRejectedException($"The restore path contains a link or junction ({Trim(current)}); refusing to follow it.");
             }

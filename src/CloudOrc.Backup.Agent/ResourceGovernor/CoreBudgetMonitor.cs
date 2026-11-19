@@ -79,21 +79,23 @@ public sealed class CoreBudgetMonitor(
             self.Refresh();
         }
 
-        var overBudget = self.PrivateMemorySize64 > _options.MaxPrivateMb * 1024L * 1024
+        // macOS does not report private bytes (0): the working set is the closest measure there.
+        var privateBytes = self.PrivateMemorySize64 > 0 ? self.PrivateMemorySize64 : self.WorkingSet64;
+        var overBudget = privateBytes > _options.MaxPrivateMb * 1024L * 1024
                          || (cpu is { } c && c > _options.MaxCpuPercent);
         if (overBudget && !_breachLogged)
         {
             _breachLogged = true;
             logger.LogWarning(
                 "Agent Core is above its budget: private={PrivateMb:F0}MB (max {MaxMb}), cpu={Cpu:F1}% (max {MaxCpu}%).",
-                self.PrivateMemorySize64 / 1048576.0, _options.MaxPrivateMb, cpu, _options.MaxCpuPercent);
+                privateBytes / 1048576.0, _options.MaxPrivateMb, cpu, _options.MaxCpuPercent);
         }
         else if (!overBudget)
         {
             _breachLogged = false;
         }
 
-        var sample = new CoreBudgetSample(self.WorkingSet64, self.PrivateMemorySize64, cpu, overBudget, DateTimeOffset.UtcNow);
+        var sample = new CoreBudgetSample(self.WorkingSet64, privateBytes, cpu, overBudget, DateTimeOffset.UtcNow);
         lock (_sync)
         {
             _latest = sample;

@@ -80,7 +80,7 @@ public class ProcessResourceSamplerTests
         Assert.NotNull(second.CpuPercent);
     }
 
-    [Fact]
+    [WindowsFact]
     public void Sample_PidChangesBetweenCalls_TreatsSecondSampleAsAFreshBaseline()
     {
         // Simulates a Control Agent restart (new PID) between two Watchdog monitoring

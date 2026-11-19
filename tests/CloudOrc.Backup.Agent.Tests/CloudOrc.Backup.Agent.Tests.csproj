@@ -24,6 +24,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CloudOrc.Backup.Agent\CloudOrc.Backup.Agent.csproj" />
     <ProjectReference Include="..\..\src\CloudOrc.Agent.Contracts\CloudOrc.Agent.Contracts.csproj" />
+    <!-- Build order only: AgentPipelineEndToEndTests starts the real worker executable. -->
+    <ProjectReference Include="..\..\src\CloudOrc.Backup.Worker\CloudOrc.Backup.Worker.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>
