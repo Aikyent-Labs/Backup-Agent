@@ -67,9 +67,8 @@ Setup exit codes:
 | Code | Meaning |
 |---|---|
 | 0 | Success |
-| 2 | Bad `--api-base` |
 | 10 / 11 | A service did not start |
-| 20 | Activation failed |
+| 21 | Installed and running, but not activated (wrong or expired code, or bad address). Activate later with `cloudorc-backup activate <CODE> --api-base <ADDRESS>`. |
 
 **Linux:**
 
@@ -100,15 +99,19 @@ pwsh scripts/package-windows.ps1 -Version 1.0.0             # -> dist/CloudOrcBa
 bash installer/macos/build-pkg.sh osx-arm64 1.0.0           # on macOS -> .pkg
 ```
 
-`.github/workflows/release.yml` builds, tests and packages every OS on a `v*` tag.
+`.github/workflows/release.yml` runs the tests on every push to `main`, and builds, tests and packages every OS (GitHub pre-release) on a `backup-v*` tag.
 
 Verified on 19 Nov 2026:
 
 | Check | Result |
 |---|---|
-| Windows tests | 544 pass |
+| Windows tests | 549 pass |
 | Linux tests (Ubuntu 24.04, WSL) | 434 pass, 32 Windows-only tests skipped |
 | Linux package | built and run as root; status over the local socket works; non-root access refused; ~69 MB idle |
+
+| End to end on Windows 11 (local backend) | activation code -> connected -> inventory -> folder picker -> policy -> Backup now (verified recovery point) -> restore to a new folder; all restored SHA-256 hashes match |
+
+The agent also restarts a stopped Backup Watchdog (checked every 5 minutes), and `activate` starts it too.
 
 The macOS build and `.pkg` are untested: they need a Mac. The Windows `setup.exe` was not compiled locally because Inno Setup is not installed on this machine; CI installs it.
 

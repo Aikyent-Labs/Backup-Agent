@@ -10,7 +10,8 @@
 ;   CloudOrcBackupSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CODE=ABCD-1234 [/API-BASE=https://...]
 ;   CloudOrcBackupSetup.exe /VERYSILENT /TOKEN=ENR-...        (CloudOrc VPS zero-touch, used by the Server Agent)
 ;   CloudOrcBackupSetup.exe /VERYSILENT /COMPONENTS="agent"   (servers: no status icon)
-; Exit codes: 0 ok, 2 bad --api-base, 10/11 a service did not start, 20 activation failed.
+; Exit codes: 0 ok, 10/11 a service did not start, 21 installed and running but NOT activated
+;             (wrong/expired code or address - activate later with "cloudorc-backup activate <CODE>").
 ;
 ; Installs two Windows services (LocalSystem, delayed automatic start so the boot is never slowed):
 ;   CloudOrcBackupAgent     the Backup Agent
@@ -98,6 +99,7 @@ Root: HKLM; Subkey: "SOFTWARE\Classes\cloudorc-backup\shell\open\command"; Value
 [Code]
 var
   CodePage: TInputQueryWizardPage;
+  ActivationProblem: String;
 
 procedure ExitProcess(uExitCode: UINT);
 external 'ExitProcess@kernel32.dll stdcall';
@@ -234,14 +236,22 @@ begin
 end;
 
 procedure InitializeWizard();
+var
+  api: String;
 begin
-  // GUI flow: one page that asks for the activation code shown in the CloudOrc portal.
+  // GUI flow: one page with the activation code and the CloudOrc address, both shown on the
+  // portal's "Add device" page.
   CodePage := CreateInputQueryPage(wpSelectComponents,
     'Activate this computer',
-    'Enter the activation code from the CloudOrc portal (Devices > Add device).',
-    'You can leave this empty and activate later from the status icon or with "cloudorc-backup activate <CODE>".');
+    'Enter the activation code and the CloudOrc address from the CloudOrc portal (Devices > Add device).',
+    'You can leave the code empty and activate later from the status icon or with "cloudorc-backup activate <CODE>".');
   CodePage.Add('Activation code:', False);
+  CodePage.Add('CloudOrc address (https://...):', False);
   CodePage.Values[0] := GetNamedParam('code');
+  api := GetNamedParam('api-base');
+  if api = '' then
+    api := '{#DefaultApiBase}';
+  CodePage.Values[1] := api;
 end;
 
 function ActivationCode(): String;
@@ -250,6 +260,38 @@ begin
     Result := Trim(GetNamedParam('code'))
   else
     Result := Trim(CodePage.Values[0]);
+end;
+
+function ApiAddress(): String;
+begin
+  if WizardSilent() or (CodePage = nil) then
+    Result := Trim(GetNamedParam('api-base'))
+  else
+    Result := Trim(CodePage.Values[1]);
+  if Result = '' then
+    Result := '{#DefaultApiBase}';
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if (CodePage <> nil) and (CurPageID = CodePage.ID) and (Trim(CodePage.Values[0]) <> '') then
+  begin
+    if Copy(Lowercase(Trim(CodePage.Values[1])), 1, 8) <> 'https://' then
+    begin
+      MsgBox('Enter the CloudOrc address shown on the Add device page (it starts with https://), or leave the activation code empty to activate later.', mbError, MB_OK);
+      Result := False;
+    end;
+  end;
+end;
+
+// Silent installs report "installed but not activated" with exit code 21 (RMM / scripts check it).
+function GetCustomSetupExitCode(): Integer;
+begin
+  if ActivationProblem <> '' then
+    Result := 21
+  else
+    Result := 0;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -268,9 +310,7 @@ begin
     agentExe := ExpandConstant('{app}\bin\cloudorc-backup.exe');
     watchdogExe := ExpandConstant('{app}\bin\cloudorc-backup-watchdog.exe');
 
-    apiBase := GetNamedParam('api-base');
-    if apiBase = '' then
-      apiBase := '{#DefaultApiBase}';
+    apiBase := ApiAddress();
     portalUrl := GetNamedParam('portal-url');
     if portalUrl = '' then
       portalUrl := '{#DefaultPortalUrl}';
@@ -280,21 +320,24 @@ begin
       if portalUrl <> '' then
         args := args + ' --portal-url "' + portalUrl + '"';
       if not RunAgent(agentExe, args) then
-        FailInstall('The CloudOrc address (--api-base) was rejected; it must be an https:// address.', 2);
+        ActivationProblem := 'The CloudOrc address was rejected (it must start with https://).';
     end;
 
-    // Activate BEFORE the service starts: a failed activation never leaves a half-configured agent.
+    // Activate before the service starts. A failed activation no longer stops the installation:
+    // the agent is installed and running and can be activated later.
     token := GetNamedParam('token');
     code := ActivationCode();
-    if token <> '' then
+    if (ActivationProblem = '') and (token <> '') then
     begin
       if not RunAgent(agentExe, 'enroll --token "' + token + '"') then
-        FailInstall('Enrollment failed - the token is invalid or expired. See C:\ProgramData\CloudOrc\Backup\logs.', 20);
+        ActivationProblem := 'Enrollment failed - the token is invalid or expired.';
     end
-    else if code <> '' then
+    else if (ActivationProblem = '') and (code <> '') then
     begin
-      if not RunAgent(agentExe, 'activate "' + code + '" --no-restart') then
-        FailInstall('Activation failed - the code may be wrong, expired or already used. Create a new code in the CloudOrc portal.', 20);
+      if apiBase = '' then
+        ActivationProblem := 'No CloudOrc address was given, so the code could not be redeemed.'
+      else if not RunAgent(agentExe, 'activate "' + code + '" --no-restart') then
+        ActivationProblem := 'Activation failed - the code may be wrong, expired or already used, or CloudOrc could not be reached.';
     end;
 
     InstallOrUpdateService('{#AgentServiceName}', 'CloudOrc Backup Agent',
@@ -306,6 +349,16 @@ begin
       'Keeps the CloudOrc Backup Agent healthy.', watchdogExe);
     if not StartServiceAndVerify('{#WatchdogServiceName}') then
       FailInstall('The CloudOrc Backup Watchdog service did not start. See C:\ProgramData\CloudOrc\Backup\watchdog\logs.', 11);
+
+    if ActivationProblem <> '' then
+    begin
+      Log('Installed but not activated: ' + ActivationProblem);
+      if not WizardSilent() then
+        MsgBox('The CloudOrc Backup Agent is installed and running, but this computer is not activated yet.' + #13#10#13#10 +
+          ActivationProblem + #13#10#13#10 +
+          'Create a new code in the CloudOrc portal (Devices > Add device) and run, as Administrator:' + #13#10 +
+          '"C:\Program Files\CloudOrc\Backup\bin\cloudorc-backup.exe" activate <CODE> --api-base <ADDRESS>', mbInformation, MB_OK);
+    end;
   end;
 end;
 

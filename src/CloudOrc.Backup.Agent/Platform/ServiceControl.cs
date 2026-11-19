@@ -96,6 +96,54 @@ public static class ServiceControl
         }
     }
 
+    /// <summary>Starts the service if it is not running; returns null on success or an error message.</summary>
+    public static string? Start(string windowsName, string systemdUnit, string launchdLabel, TimeSpan timeout)
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                using var controller = new System.ServiceProcess.ServiceController(windowsName);
+                if (controller.Status == System.ServiceProcess.ServiceControllerStatus.Running)
+                {
+                    return null;
+                }
+
+                if (controller.Status is System.ServiceProcess.ServiceControllerStatus.Stopped)
+                {
+                    controller.Start();
+                }
+
+                controller.WaitForStatus(System.ServiceProcess.ServiceControllerStatus.Running, timeout);
+                return null;
+            }
+
+            if (OperatingSystem.IsLinux())
+            {
+                var (code, output) = Run("systemctl", ["start", systemdUnit]);
+                return code == 0 ? null : $"systemctl start {systemdUnit} failed ({code}): {output.Trim()}";
+            }
+
+            if (OperatingSystem.IsMacOS())
+            {
+                var (code, output) = Run("launchctl", ["kickstart", $"system/{launchdLabel}"]);
+                return code == 0 ? null : $"launchctl kickstart {launchdLabel} failed ({code}): {output.Trim()}";
+            }
+
+            return "Unsupported operating system.";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or System.ServiceProcess.TimeoutException)
+        {
+            return ex.Message;
+        }
+    }
+
+    public static State QueryWatchdog() =>
+        Query(AgentPlatform.WindowsWatchdogServiceName, AgentPlatform.SystemdWatchdogUnit, AgentPlatform.LaunchdWatchdogLabel);
+
+    public static string? StartWatchdog() =>
+        Start(AgentPlatform.WindowsWatchdogServiceName, AgentPlatform.SystemdWatchdogUnit, AgentPlatform.LaunchdWatchdogLabel, TimeSpan.FromSeconds(60));
+
     public static State QueryAgent() =>
         Query(AgentPlatform.WindowsServiceName, AgentPlatform.SystemdUnit, AgentPlatform.LaunchdLabel);
 

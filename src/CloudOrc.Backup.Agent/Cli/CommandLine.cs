@@ -146,6 +146,12 @@ public static class CommandLine
         Console.WriteLine(error is null
             ? "Activated. The Backup Agent is connecting to CloudOrc - this machine will appear in the portal shortly."
             : $"Activated, but the service could not be restarted ({error}). Restart it to connect.");
+
+        // The watchdog may have been left stopped (e.g. an earlier setup aborted after a failed activation).
+        if (ServiceControl.QueryWatchdog() == ServiceControl.State.Stopped && ServiceControl.StartWatchdog() is { } watchdogError)
+        {
+            Console.WriteLine($"Note: the Backup Watchdog service could not be started ({watchdogError}).");
+        }
     }
 
     private static async Task<int> StatusAsync(bool asJson)

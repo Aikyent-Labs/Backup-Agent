@@ -236,6 +236,7 @@ if (backendOptions.Enabled)
 }
 
 builder.Services.AddHostedService<CoreLivenessService>();
+builder.Services.AddHostedService<WatchdogGuardService>();
 builder.Services.AddHostedService<HealthPipeServer>();
 
 var host = builder.Build();
