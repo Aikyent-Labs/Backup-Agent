@@ -1,0 +1,43 @@
+[Unit]
+Description=CloudOrc Backup Agent
+Documentation=https://cloudorc.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/opt/cloudorc-backup/bin/cloudorc-backup
+WorkingDirectory=/opt/cloudorc-backup/bin
+Restart=always
+RestartSec=10
+TimeoutStartSec=120
+TimeoutStopSec=90
+KillMode=control-group
+
+# Never slow the machine down: the agent itself runs below normal priority, and every backup job
+# gets its own child cgroup with hard CPU / memory caps (Delegate=yes lets the agent create them).
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+CPUWeight=50
+IOWeight=50
+Delegate=yes
+
+# Small, predictable memory footprint for the .NET runtime.
+Environment=DOTNET_GCConserveMemory=5
+Environment=DOTNET_gcServer=0
+Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
+Environment=DOTNET_NOLOGO=1
+LimitNOFILE=65536
+
+# Hardening that does not get in the way of reading (backup) and writing (restore) data.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=no
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

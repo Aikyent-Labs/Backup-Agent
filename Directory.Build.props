@@ -1,0 +1,19 @@
+<Project>
+  <!--
+    CloudOrc Backup Agent - shared build settings for every project in this repository.
+    Version: local builds use 0.0.0-dev; CI overrides with -p:Version=X.Y.Z from the tag.
+    CA1416 (platform compatibility) is an ERROR: every Windows-only / Unix-only API call must be
+    guarded (OperatingSystem.IsWindows() etc.) because the same binaries ship to Windows,
+    Linux and macOS.
+  -->
+  <PropertyGroup>
+    <Version>0.0.0-dev</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <WarningsAsErrors>$(WarningsAsErrors);CA1416</WarningsAsErrors>
+    <Company>CloudOrc</Company>
+    <Product>CloudOrc Backup Agent</Product>
+    <Copyright>CloudOrc</Copyright>
+  </PropertyGroup>
+</Project>

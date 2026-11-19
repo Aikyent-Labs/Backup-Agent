@@ -1,0 +1,162 @@
+# Builds, tests and packages the CloudOrc Backup Agent for every OS on a version tag (v1.2.3).
+# Artifacts: CloudOrcBackupSetup.exe, cloudorc-backup-<v>-<rid>.tar.gz (Linux/macOS + self-update),
+# .deb/.rpm, CloudOrcBackup-<v>-<rid>.pkg - each with a .sha256.
+# Signing secrets (optional, recommended): WINDOWS_PFX_BASE64 + WINDOWS_PFX_PASSWORD,
+# APPLE_APP_IDENTITY, APPLE_INSTALLER_IDENTITY, APPLE_NOTARY_PROFILE (+ keychain setup).
+name: release
+
+on:
+  push:
+    tags: ["backup-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (X.Y.Z)"
+        required: true
+
+env:
+  DOTNET_NOLOGO: 1
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      value: ${{ steps.v.outputs.value }}
+    steps:
+      - id: v
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then echo "value=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT";
+          else echo "value=${GITHUB_REF_NAME#backup-v}" >> "$GITHUB_OUTPUT"; fi
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    # macOS has never been run on real hardware yet: report its result without blocking a release.
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "10.0.x" }
+      - name: Test (Windows, full solution incl. status icon)
+        if: runner.os == 'Windows'
+        run: dotnet test CloudOrc.BackupAgent.sln -c Release
+      - name: Test (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: dotnet test CloudOrc.BackupAgent.CrossPlatform.slnf -c Release
+
+  linux:
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { rid: linux-x64, arch: amd64 }
+          - { rid: linux-arm64, arch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "10.0.x" }
+      - run: bash scripts/package.sh ${{ matrix.rid }} ${{ needs.version.outputs.value }}
+      - name: deb + rpm
+        run: |
+          curl -fsSL -o /tmp/nfpm.tar.gz https://github.com/goreleaser/nfpm/releases/download/v2.41.1/nfpm_2.41.1_Linux_x86_64.tar.gz
+          tar -xzf /tmp/nfpm.tar.gz -C /tmp nfpm
+          export RID=${{ matrix.rid }} ARCH=${{ matrix.arch }} VERSION=${{ needs.version.outputs.value }}
+          envsubst '${RID} ${ARCH} ${VERSION}' < installer/linux/nfpm.yaml > /tmp/nfpm.yaml
+          for fmt in deb rpm; do
+            /tmp/nfpm package -f /tmp/nfpm.yaml -p $fmt -t dist/
+          done
+          cd dist && for f in *.deb *.rpm; do sha256sum "$f" > "$f.sha256"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
+            dist/*.sha256
+
+  macos:
+    needs: [version, test]
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        rid: [osx-arm64, osx-x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "10.0.x" }
+      - run: bash scripts/package.sh ${{ matrix.rid }} ${{ needs.version.outputs.value }}
+      - run: bash installer/macos/build-pkg.sh ${{ matrix.rid }} ${{ needs.version.outputs.value }}
+        env:
+          APPLE_APP_IDENTITY: ${{ secrets.APPLE_APP_IDENTITY }}
+          APPLE_INSTALLER_IDENTITY: ${{ secrets.APPLE_INSTALLER_IDENTITY }}
+          APPLE_NOTARY_PROFILE: ${{ secrets.APPLE_NOTARY_PROFILE }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}
+          path: |
+            dist/*.tar.gz
+            dist/*.pkg
+            dist/*.sha256
+
+  windows:
+    needs: [version, test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "10.0.x" }
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Package
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -Version ${{ needs.version.outputs.value }} -DefaultApiBase "${{ vars.CLOUDORC_API_BASE }}" -DefaultPortalUrl "${{ vars.CLOUDORC_PORTAL_URL }}"
+      - name: Sign (Authenticode)
+        if: env.PFX != ''
+        shell: pwsh
+        env:
+          PFX: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        run: |
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\sign.pfx", [Convert]::FromBase64String($env:PFX))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -Last 1
+          & $signtool.FullName sign /f "$env:RUNNER_TEMP\sign.pfx" /p $env:PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 dist\CloudOrcBackupSetup.exe
+          "$((Get-FileHash dist\CloudOrcBackupSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant())  CloudOrcBackupSetup.exe" | Set-Content dist\CloudOrcBackupSetup.exe.sha256 -Encoding ascii
+      - name: Self-update package (win-x64 tree)
+        shell: pwsh
+        run: tar -C dist/win-x64/cloudorc-backup -czf "dist/cloudorc-backup-${{ needs.version.outputs.value }}-win-x64.tar.gz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win-x64
+          path: |
+            dist/CloudOrcBackupSetup.exe
+            dist/*.sha256
+            dist/*.tar.gz
+
+  release:
+    needs: [version, linux, macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts, merge-multiple: true }
+      - run: |
+          echo "${{ needs.version.outputs.value }}" > artifacts/VERSION
+          cp installer/linux/get-cloudorc-backup.sh installer/windows/install-backup.ps1 artifacts/
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: backup-v${{ needs.version.outputs.value }}
+          name: CloudOrc Backup Agent ${{ needs.version.outputs.value }}
+          prerelease: ${{ contains(needs.version.outputs.value, '-') }}
+          body: |
+            CloudOrc Backup Agent ${{ needs.version.outputs.value }} - standalone backup agent for Windows, Linux and macOS.
+            Windows: CloudOrcBackupSetup.exe (GUI, or /VERYSILENT /CODE=<code>). Linux: .deb / .rpm / .tar.gz. macOS: .pkg.
+            Pre-release builds are unsigned (Windows shows "Unknown publisher").
+          files: artifacts/*

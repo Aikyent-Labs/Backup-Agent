@@ -1,0 +1,20 @@
+[Unit]
+Description=CloudOrc Backup Watchdog (keeps the CloudOrc Backup Agent healthy)
+After=cloudorc-backup-agent.service
+
+[Service]
+Type=notify
+ExecStart=/opt/cloudorc-backup/bin/cloudorc-backup-watchdog
+WorkingDirectory=/opt/cloudorc-backup/bin
+Restart=always
+RestartSec=15
+Nice=5
+MemoryMax=256M
+Environment=DOTNET_GCConserveMemory=7
+Environment=DOTNET_gcServer=0
+Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

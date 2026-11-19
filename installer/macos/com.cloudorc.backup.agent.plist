@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cloudorc.backup.agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Library/CloudOrc/Backup/bin/cloudorc-backup</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Library/CloudOrc/Backup/bin</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <!-- Never slow the Mac down: background QoS, low-priority disk IO, reduced CPU priority. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>5</integer>
+    <!-- The agent stops its own backup worker; the self-updater must survive the agent's restart. -->
+    <key>AbandonProcessGroup</key>
+    <true/>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>DOTNET_GCConserveMemory</key>
+        <string>5</string>
+        <key>DOTNET_gcServer</key>
+        <string>0</string>
+        <key>DOTNET_CLI_TELEMETRY_OPTOUT</key>
+        <string>1</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Library/Logs/CloudOrcBackup/agent.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Library/Logs/CloudOrcBackup/agent.err.log</string>
+</dict>
+</plist>

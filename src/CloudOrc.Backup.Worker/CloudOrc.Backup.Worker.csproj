@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Isolated per-job backup worker. Started by the Backup Agent for each job inside the OS
+    resource limits (Windows Job Object / Linux nice+ionice / macOS background priority);
+    talks JSON lines over stdin/stdout; drives Kopia found in the Engines directory.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>CloudOrc.Backup.Worker</RootNamespace>
+    <AssemblyName>cloudorc-backup-worker</AssemblyName>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CloudOrc.Agent.Contracts\CloudOrc.Agent.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Shared\PostgresLocator.cs" Link="Shared\PostgresLocator.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CloudOrc.Backup.Worker.Tests" />
+  </ItemGroup>
+</Project>

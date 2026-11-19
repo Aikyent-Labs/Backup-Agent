@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Wire protocol shared with the CloudOrc Server Agent (Server-Agent repo). Keep in sync. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>CloudOrc.Agent.Contracts</RootNamespace>
+  </PropertyGroup>
+</Project>

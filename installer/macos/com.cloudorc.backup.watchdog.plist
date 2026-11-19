@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cloudorc.backup.watchdog</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Library/CloudOrc/Backup/bin/cloudorc-backup-watchdog</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Library/CloudOrc/Backup/bin</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>15</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>DOTNET_GCConserveMemory</key>
+        <string>7</string>
+        <key>DOTNET_CLI_TELEMETRY_OPTOUT</key>
+        <string>1</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Library/Logs/CloudOrcBackup/watchdog.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Library/Logs/CloudOrcBackup/watchdog.err.log</string>
+</dict>
+</plist>

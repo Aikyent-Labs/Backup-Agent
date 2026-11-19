@@ -1,0 +1,16 @@
+{
+  "solution": {
+    "path": "CloudOrc.BackupAgent.sln",
+    "projects": [
+      "src\\CloudOrc.Agent.Contracts\\CloudOrc.Agent.Contracts.csproj",
+      "src\\CloudOrc.Backup.Agent\\CloudOrc.Backup.Agent.csproj",
+      "src\\CloudOrc.Backup.Worker\\CloudOrc.Backup.Worker.csproj",
+      "src\\CloudOrc.Backup.Watchdog\\CloudOrc.Backup.Watchdog.csproj",
+      "src\\CloudOrc.Backup.Updater\\CloudOrc.Backup.Updater.csproj",
+      "tests\\CloudOrc.Backup.Agent.Tests\\CloudOrc.Backup.Agent.Tests.csproj",
+      "tests\\CloudOrc.Backup.Worker.Tests\\CloudOrc.Backup.Worker.Tests.csproj",
+      "tests\\CloudOrc.Backup.Watchdog.Tests\\CloudOrc.Backup.Watchdog.Tests.csproj",
+      "tests\\CloudOrc.Backup.Updater.Tests\\CloudOrc.Backup.Updater.Tests.csproj"
+    ]
+  }
+}
