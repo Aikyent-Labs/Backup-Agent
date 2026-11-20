@@ -53,6 +53,18 @@ public sealed class BackupPolicyDocument
     [JsonPropertyName("fullBackupDay")]
     public string FullBackupDay { get; init; } = "Sunday";
 
+    /// <summary>For "custom": the weekdays (Monday..Sunday) whose backups are full; other runs are incremental.</summary>
+    [JsonPropertyName("fullBackupDays")]
+    public IReadOnlyList<string>? FullBackupDays { get; init; }
+
+    /// <summary>For "monthly-full" (default 1) and "custom": the day of the month (1..28) whose backups are full.</summary>
+    [JsonPropertyName("fullBackupMonthDay")]
+    public int? FullBackupMonthDay { get; init; }
+
+    /// <summary>For "custom": the first backup of every local day is full (e.g. hourly incremental + daily full).</summary>
+    [JsonPropertyName("fullBackupDaily")]
+    public bool FullBackupDaily { get; init; }
+
     [JsonPropertyName("repository")]
     public required BackupRepositoryRef Repository { get; init; }
 
@@ -109,7 +121,7 @@ public static class BackupSourceKinds
 
 public sealed class BackupSchedule
 {
-    /// <summary>"daily", "interval" or "manual" (manual = on-demand backup.run only).</summary>
+    /// <summary>"daily", "interval", "monthly" or "manual" (manual = on-demand backup.run only).</summary>
     [JsonPropertyName("kind")]
     public string Kind { get; init; } = BackupScheduleKinds.Daily;
 
@@ -124,6 +136,17 @@ public sealed class BackupSchedule
     /// <summary>For "interval": hours between runs.</summary>
     [JsonPropertyName("intervalHours")]
     public double? IntervalHours { get; init; }
+
+    /// <summary>For "monthly": days of the month (1..28) on which the timesOfDay run.</summary>
+    [JsonPropertyName("daysOfMonth")]
+    public IReadOnlyList<int> DaysOfMonth { get; init; } = [];
+
+    /// <summary>For "interval": only run between these local times ("HH:mm"); both null = all day.</summary>
+    [JsonPropertyName("activeFrom")]
+    public string? ActiveFrom { get; init; }
+
+    [JsonPropertyName("activeTo")]
+    public string? ActiveTo { get; init; }
 
     /// <summary>
     /// Spread window (§8: "Stable per-agent schedule offset prevents midnight synchronization").
@@ -153,6 +176,7 @@ public static class BackupScheduleKinds
 {
     public const string Daily = "daily";
     public const string Interval = "interval";
+    public const string Monthly = "monthly";
     public const string Manual = "manual";
 }
 
@@ -280,7 +304,47 @@ public static class BackupModes
     public const string Full = "full";
     public const string WeeklyFull = "weekly-full";
 
-    public static bool IsKnown(string? mode) => mode is Incremental or Full or WeeklyFull;
+    /// <summary>Full on one day of the month (<see cref="BackupPolicyDocument.FullBackupMonthDay"/>), incremental otherwise.</summary>
+    public const string MonthlyFull = "monthly-full";
+
+    /// <summary>Acronis-style custom scheme: full on the chosen weekdays and/or day of the month, incremental otherwise.</summary>
+    public const string Custom = "custom";
+
+    public static bool IsKnown(string? mode) => mode is Incremental or Full or WeeklyFull or MonthlyFull or Custom;
+
+    /// <summary>
+    /// Whether this backup re-reads every file, from the policy's full scheme.
+    /// <paramref name="lastFullLocalDate"/> is the local date of the last successful full backup
+    /// (for "custom" with <see cref="BackupPolicyDocument.FullBackupDaily"/>).
+    /// </summary>
+    public static bool IsFullScan(string? requested, BackupPolicyDocument? policy, DateTimeOffset localNow, DateOnly? lastFullLocalDate = null)
+    {
+        if (requested is null && policy is { BackupMode: Custom, FullBackupDaily: true } && lastFullLocalDate != DateOnly.FromDateTime(localNow.DateTime))
+        {
+            return true;
+        }
+
+        return IsFullScan(requested, policy?.BackupMode, policy?.FullBackupDay, localNow, policy?.FullBackupDays, policy?.FullBackupMonthDay);
+    }
+
+    public static bool IsFullScan(string? requested, string? policyMode, string? fullDay, DateTimeOffset localNow, IReadOnlyList<string>? fullDays, int? monthDay)
+    {
+        if (requested == Full) return true;
+        if (requested == Incremental) return false;
+        if (policyMode == MonthlyFull)
+        {
+            return localNow.Day == (monthDay ?? 1);
+        }
+
+        if (policyMode == Custom)
+        {
+            var onWeekday = fullDays?.Any(d => Enum.TryParse<DayOfWeek>(d, true, out var day) && localNow.DayOfWeek == day) == true;
+            var onMonthDay = monthDay is { } md && localNow.Day == md;
+            return onWeekday || onMonthDay;
+        }
+
+        return IsFullScan(requested, policyMode, fullDay, localNow);
+    }
 
     /// <summary>
     /// Whether this backup re-reads every file. A per-run request ("full" / "incremental") wins;

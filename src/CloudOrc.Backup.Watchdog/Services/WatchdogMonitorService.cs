@@ -23,6 +23,7 @@ public sealed class WatchdogMonitorService(
     ConsecutiveFailureTracker failureTracker,
     RecoveryRateLimiter rateLimiter,
     WatchdogResourceMonitors resourceMonitors,
+    AgentMetricsFile metricsFile,
     WatchdogEventLog events,
     ILogger<WatchdogMonitorService> logger) : BackgroundService
 {
@@ -89,7 +90,7 @@ public sealed class WatchdogMonitorService(
             logger.LogWarning("Health check did not get a response from the Control Agent.");
         }
 
-        var memoryLeak = CheckMemory();
+        var memoryLeak = CheckMemory(serviceStatus.ToString(), health?.Status);
         if (memoryLeak)
         {
             healthy = false;
@@ -133,10 +134,11 @@ public sealed class WatchdogMonitorService(
     /// while still using an unexpectedly large or growing amount of memory, which this
     /// line is what would surface.
     /// </summary>
-    private bool CheckMemory()
+    private bool CheckMemory(string serviceState, string? health)
     {
         var agent = resourceMonitors.ControlAgent.Sample();
         var self = resourceMonitors.Self.Sample();
+        metricsFile.Write(serviceState, health, agent, self);
         logger.LogDebug("Resource usage: BackupAgent [{AgentUsage}]; Watchdog (self) [{WatchdogUsage}].", Describe(agent), Describe(self));
 
         if (_options.MaxAgentWorkingSetMb <= 0 || agent.WorkingSetBytes is not { } ws)

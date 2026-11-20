@@ -44,6 +44,14 @@ public static class BackupPolicyValidator
             $"Unknown resourceProfile '{policy.ResourceProfile}'.");
         Require(errors, BackupModes.IsKnown(policy.BackupMode), $"Unknown backupMode '{policy.BackupMode}'.");
         Require(errors, Enum.TryParse<DayOfWeek>(policy.FullBackupDay, true, out _), $"Unknown fullBackupDay '{policy.FullBackupDay}'.");
+        foreach (var day in policy.FullBackupDays ?? [])
+        {
+            Require(errors, Enum.TryParse<DayOfWeek>(day, true, out _), $"Unknown fullBackupDays entry '{day}'.");
+        }
+
+        Require(errors, policy.FullBackupMonthDay is null or (>= 1 and <= 28), "fullBackupMonthDay must be 1..28.");
+        Require(errors, policy.BackupMode != BackupModes.Custom || policy.FullBackupDaily || (policy.FullBackupDays?.Count ?? 0) > 0 || policy.FullBackupMonthDay is not null,
+            "A custom backup scheme needs fullBackupDaily, fullBackupDays or fullBackupMonthDay.");
         Require(errors, IsSafeId(policy.Repository.RepositoryId), "repository.repositoryId is required.");
         Require(errors, IsSafeId(policy.Repository.StoragePoolId), "repository.storagePoolId is required.");
         Require(errors, policy.Repository.Engine is BackupEngineNames.Kopia or BackupEngineNames.Restic,
@@ -193,6 +201,29 @@ public static class BackupPolicyValidator
                 if (schedule.IntervalHours is null or < 0.25 or > 24 * 31)
                 {
                     errors.Add("schedule.intervalHours must be between 0.25 and 744.");
+                }
+
+                if (schedule.DaysOfWeek.Any(d => !Enum.TryParse<DayOfWeek>(d, ignoreCase: true, out _)))
+                {
+                    errors.Add("schedule.daysOfWeek contains an unknown day.");
+                }
+
+                if ((schedule.ActiveFrom is not null && !TryParseTimeOfDay(schedule.ActiveFrom, out _))
+                    || (schedule.ActiveTo is not null && !TryParseTimeOfDay(schedule.ActiveTo, out _)))
+                {
+                    errors.Add("schedule.activeFrom / activeTo must be 'HH:mm'.");
+                }
+
+                break;
+            case BackupScheduleKinds.Monthly:
+                if (schedule.TimesOfDay.Count is 0 or > 24 || schedule.TimesOfDay.Any(t => !TryParseTimeOfDay(t, out _)))
+                {
+                    errors.Add("schedule.timesOfDay must contain 1-24 'HH:mm' values.");
+                }
+
+                if (schedule.DaysOfMonth.Count == 0 || schedule.DaysOfMonth.Any(d => d is < 1 or > 28))
+                {
+                    errors.Add("schedule.daysOfMonth must contain days 1-28.");
                 }
 
                 break;

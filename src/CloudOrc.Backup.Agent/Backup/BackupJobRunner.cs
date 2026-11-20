@@ -36,6 +36,9 @@ public sealed class BackupJobRunner(
 {
     private readonly BackupOptions _options = options.Value;
 
+    // Jobs that run as a full backup; on success the date is remembered for "first backup of the day is full".
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _fullScanJobs = new();
+
     // Accessors for the nested worker-callback class (primary-constructor parameters are not visible to it).
     private CancellationToken _serviceStopping;
 
@@ -425,9 +428,55 @@ public sealed class BackupJobRunner(
             Restore = context.Spec.Restore,
             CompletedSnapshots = ReadCompletedSnapshots(job.JobId),
             MaintenanceFull = context.Spec.Maintenance?.Full ?? true,
-            FullScan = job.Kind == BackupJobKinds.Backup
-                && BackupModes.IsFullScan(context.Spec.BackupMode, context.Policy?.BackupMode, context.Policy?.FullBackupDay, time.GetLocalNow())
+            FullScan = DecideFullScan(job, context)
         };
+    }
+
+    private bool DecideFullScan(BackupJobRecord job, RunContext context)
+    {
+        if (job.Kind != BackupJobKinds.Backup)
+        {
+            return false;
+        }
+
+        var lastFull = context.Policy is null ? null : ReadLastFullDate(context.Policy.PolicyId);
+        var full = BackupModes.IsFullScan(context.Spec.BackupMode, context.Policy, time.GetLocalNow(), lastFull);
+        if (full)
+        {
+            _fullScanJobs[job.JobId] = true;
+        }
+
+        return full;
+    }
+
+    private string FullScanMarker(string policyId) =>
+        Path.Combine(Path.GetDirectoryName(paths.StateDatabase)!, $"last-full-{BackupPaths.SafeName(policyId)}.txt");
+
+    private DateOnly? ReadLastFullDate(string policyId)
+    {
+        try
+        {
+            var file = FullScanMarker(policyId);
+            return File.Exists(file) && DateOnly.TryParseExact(File.ReadAllText(file).Trim(), "yyyy-MM-dd", out var d) ? d : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private void RecordFullScan(string policyId)
+    {
+        try
+        {
+            var file = FullScanMarker(policyId);
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(file, DateOnly.FromDateTime(time.GetLocalNow().DateTime).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex, "Could not record the last full backup date.");
+        }
     }
 
     /// <summary>Snapshots already taken for this job in earlier attempts (§8 checkpoint metadata) - those sources are not re-run.</summary>
@@ -639,6 +688,10 @@ public sealed class BackupJobRunner(
 
             var verified = result.Summary?.VerificationState == VerificationStates.Verified;
             policies.RecordSuccess(context.Policy!.PolicyId, now, verified, result.Summary?.SourceBytes);
+            if (_fullScanJobs.TryRemove(job.JobId, out var wasFull) && wasFull)
+            {
+                RecordFullScan(context.Policy.PolicyId);
+            }
         }
 
         var eventType = job.Kind switch

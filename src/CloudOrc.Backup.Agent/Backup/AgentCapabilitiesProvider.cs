@@ -21,6 +21,8 @@ public sealed class AgentCapabilitiesProvider : IAgentCapabilitiesProvider
             AgentCapabilities.ActivationCodeV1,
             AgentCapabilities.SessionRenewV1,
             AgentCapabilities.InventoryV1,
+            AgentCapabilities.BackupSchemesV2,
+            AgentCapabilities.BackupSchedulesV2,
             AgentCapabilities.StandaloneBackupAgent
         };
 

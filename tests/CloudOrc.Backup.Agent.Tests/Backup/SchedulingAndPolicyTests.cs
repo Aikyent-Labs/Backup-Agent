@@ -85,6 +85,31 @@ public class ScheduleCalculatorTests
     }
 
     [Fact]
+    public void Monthly_RunsOnTheChosenDaysOfTheMonth()
+    {
+        var schedule = new BackupSchedule { Kind = BackupScheduleKinds.Monthly, TimesOfDay = ["02:00"], DaysOfMonth = [1, 15] };
+        var slot = ScheduleCalculator.LatestSlotAtOrBefore(schedule, new DateTimeOffset(2026, 11, 19, 12, 0, 0, TimeSpan.Zero), Utc);
+        Assert.Equal(new DateTimeOffset(2026, 11, 15, 2, 0, 0, TimeSpan.Zero), slot);
+        var early = ScheduleCalculator.LatestSlotAtOrBefore(schedule, new DateTimeOffset(2026, 11, 1, 1, 0, 0, TimeSpan.Zero), Utc);
+        Assert.Equal(new DateTimeOffset(2026, 10, 15, 2, 0, 0, TimeSpan.Zero), early);
+    }
+
+    [Fact]
+    public void Interval_OnlyInsideTheChosenDaysAndHours()
+    {
+        // every 2 h, Monday-Friday, 09:00-18:00. 2026-11-21 is a Saturday -> latest slot is Friday 18:00.
+        var schedule = new BackupSchedule
+        {
+            Kind = BackupScheduleKinds.Interval, IntervalHours = 2, DaysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+            ActiveFrom = "09:00", ActiveTo = "18:00"
+        };
+        var slot = ScheduleCalculator.LatestSlotAtOrBefore(schedule, new DateTimeOffset(2026, 11, 21, 10, 30, 0, TimeSpan.Zero), Utc);
+        Assert.Equal(new DateTimeOffset(2026, 11, 20, 18, 0, 0, TimeSpan.Zero), slot);
+        var inside = ScheduleCalculator.LatestSlotAtOrBefore(schedule, new DateTimeOffset(2026, 11, 19, 13, 0, 0, TimeSpan.Zero), Utc);
+        Assert.Equal(new DateTimeOffset(2026, 11, 19, 12, 0, 0, TimeSpan.Zero), inside);
+    }
+
+    [Fact]
     public void Manual_IsNeverScheduled()
     {
         var schedule = new BackupSchedule { Kind = BackupScheduleKinds.Manual };

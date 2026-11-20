@@ -74,6 +74,12 @@ public static class AgentCapabilities
     /// <summary>Sends "agent.inventory" events and answers inventory.refresh.</summary>
     public const string InventoryV1 = "inventory.v1";
 
+    /// <summary>Understands the "monthly-full" and "custom" backup schemes (fullBackupDays / fullBackupMonthDay).</summary>
+    public const string BackupSchemesV2 = "backup.schemes.v2";
+
+    /// <summary>Monthly schedules, hourly schedules limited to days / hours, and "first backup of the day is full".</summary>
+    public const string BackupSchedulesV2 = "backup.schedules.v2";
+
     /// <summary>Can back up PostgreSQL databases (pg_dump found on this machine).</summary>
     public const string PostgreSqlV1 = "workload.postgresql.v1";
 

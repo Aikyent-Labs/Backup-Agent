@@ -44,7 +44,69 @@ public static class ScheduleCalculator
                 // Anchored to the Unix epoch so slots are stable across restarts and machines.
                 var interval = TimeSpan.FromHours(schedule.IntervalHours.Value).Ticks;
                 var sinceEpoch = (now.UtcTicks - DateTimeOffset.UnixEpoch.UtcTicks) / interval * interval;
-                return new DateTimeOffset(DateTimeOffset.UnixEpoch.UtcTicks + sinceEpoch, TimeSpan.Zero);
+                var slot = new DateTimeOffset(DateTimeOffset.UnixEpoch.UtcTicks + sinceEpoch, TimeSpan.Zero);
+                var days = DaysOf(schedule);
+                var from = schedule.ActiveFrom is not null && BackupPolicyValidator.TryParseTimeOfDay(schedule.ActiveFrom, out var f) ? f : (TimeSpan?)null;
+                var to = schedule.ActiveTo is not null && BackupPolicyValidator.TryParseTimeOfDay(schedule.ActiveTo, out var t) ? t : (TimeSpan?)null;
+                if (days.Count == 0 && from is null && to is null)
+                {
+                    return slot;
+                }
+
+                // Walk back to the latest slot inside the allowed days / hours (at most 8 days back).
+                var limit = now.AddDays(-8);
+                while (slot > limit)
+                {
+                    var local = TimeZoneInfo.ConvertTime(slot, zone);
+                    var dayOk = days.Count == 0 || days.Contains(local.DayOfWeek);
+                    var tod = local.TimeOfDay;
+                    var timeOk = (from, to) switch
+                    {
+                        (null, null) => true,
+                        ({ } a, null) => tod >= a,
+                        (null, { } b) => tod <= b,
+                        ({ } a, { } b) when a <= b => tod >= a && tod <= b,
+                        ({ } a, { } b) => tod >= a || tod <= b // window over midnight
+                    };
+                    if (dayOk && timeOk)
+                    {
+                        return slot;
+                    }
+
+                    slot = slot.AddTicks(-interval);
+                }
+
+                return null;
+            }
+
+            case BackupScheduleKinds.Monthly:
+            {
+                var times = TimesOf(schedule);
+                var monthDays = schedule.DaysOfMonth.Where(d => d is >= 1 and <= 28).ToHashSet();
+                if (times.Count == 0 || monthDays.Count == 0)
+                {
+                    return null;
+                }
+
+                var localNow = TimeZoneInfo.ConvertTime(now, zone);
+                for (var back = 0; back <= 62; back++)
+                {
+                    var date = localNow.Date.AddDays(-back);
+                    if (!monthDays.Contains(date.Day))
+                    {
+                        continue;
+                    }
+
+                    foreach (var time in times)
+                    {
+                        if (ToSlot(date + time, zone) is var slot && slot <= now)
+                        {
+                            return slot.ToUniversalTime();
+                        }
+                    }
+                }
+
+                return null;
             }
 
             case BackupScheduleKinds.Daily:
@@ -135,6 +197,29 @@ public static class ScheduleCalculator
 
         var spread = TimeSpan.FromMinutes(Math.Max(0, schedule.CatchUpSpreadMinutes) * Math.Clamp(random01, 0, 1));
         return new DueRun(slot.Value, now + spread, IsCatchUp: true);
+    }
+
+    private static List<TimeSpan> TimesOf(BackupSchedule schedule) =>
+        schedule.TimesOfDay
+            .Select(t => BackupPolicyValidator.TryParseTimeOfDay(t, out var ts) ? ts : (TimeSpan?)null)
+            .Where(t => t is not null).Select(t => t!.Value)
+            .OrderByDescending(t => t)
+            .ToList();
+
+    private static HashSet<DayOfWeek> DaysOf(BackupSchedule schedule) =>
+        schedule.DaysOfWeek
+            .Select(d => Enum.TryParse<DayOfWeek>(d, true, out var day) ? day : (DayOfWeek?)null)
+            .Where(d => d is not null).Select(d => d!.Value)
+            .ToHashSet();
+
+    private static DateTimeOffset ToSlot(DateTime localSlot, TimeZoneInfo zone)
+    {
+        if (zone.IsInvalidTime(localSlot))
+        {
+            localSlot = localSlot.AddHours(1); // DST spring-forward gap
+        }
+
+        return new DateTimeOffset(localSlot, zone.GetUtcOffset(localSlot));
     }
 
     public static TimeZoneInfo ResolveZone(BackupSchedule schedule) =>

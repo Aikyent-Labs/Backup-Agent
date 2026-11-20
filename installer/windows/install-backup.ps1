@@ -28,7 +28,12 @@ New-Item -ItemType Directory $work | Out-Null
 try {
     $setup = Join-Path $work "CloudOrcBackupSetup.exe"
     Invoke-WebRequest "$DownloadBase/CloudOrcBackupSetup.exe" -OutFile $setup -UseBasicParsing
-    $expected = ((Invoke-WebRequest "$DownloadBase/CloudOrcBackupSetup.exe.sha256" -UseBasicParsing).Content -split '\s+')[0].Trim().ToLowerInvariant()
+    # Release hosts serve .sha256 as application/octet-stream: Windows PowerShell 5.1 then returns
+    # Content as Byte[], so decode it explicitly instead of splitting the bytes.
+    $shaContent = (Invoke-WebRequest "$DownloadBase/CloudOrcBackupSetup.exe.sha256" -UseBasicParsing).Content
+    if ($shaContent -is [byte[]]) { $shaContent = [Text.Encoding]::ASCII.GetString($shaContent) }
+    $expected = ([string]$shaContent).Trim().Split(@(' ', "`t", "`r", "`n"), [StringSplitOptions]::RemoveEmptyEntries)[0].ToLowerInvariant()
+    if ($expected -notmatch '^[0-9a-f]{64}$') { throw "Could not read the published SHA-256 checksum. Nothing was installed." }
     $actual = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($expected -ne $actual) { throw "Checksum mismatch - the download is corrupt or was tampered with. Nothing was installed." }
 

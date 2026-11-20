@@ -1,3 +1,4 @@
+using CloudOrc.Backup.Agent.Backup;
 using CloudOrc.Agent.Contracts.Backup;
 
 namespace CloudOrc.Backup.Agent.Tests.Backup;
@@ -31,6 +32,51 @@ public sealed class BackupModeTests
     {
         Assert.True(BackupModes.IsFullScan(null, BackupModes.WeeklyFull, "Sunday", Sunday));
         Assert.False(BackupModes.IsFullScan(null, BackupModes.WeeklyFull, "Sunday", Monday));
+    }
+
+    [Fact]
+    public void MonthlyFullIsFullOnlyOnItsDayOfTheMonth()
+    {
+        var first = new DateTimeOffset(2026, 12, 1, 22, 0, 0, TimeSpan.Zero);
+        var second = first.AddDays(1);
+        Assert.True(BackupModes.IsFullScan(null, BackupModes.MonthlyFull, null, first, null, null));
+        Assert.False(BackupModes.IsFullScan(null, BackupModes.MonthlyFull, null, second, null, null));
+        Assert.True(BackupModes.IsFullScan(null, BackupModes.MonthlyFull, null, second, null, 2));
+    }
+
+    [Fact]
+    public void CustomIsFullOnTheChosenWeekdaysOrDayOfTheMonth()
+    {
+        var wednesday = new DateTimeOffset(2026, 11, 18, 22, 0, 0, TimeSpan.Zero);
+        var thursday = wednesday.AddDays(1);
+        string[] days = ["Wednesday", "Saturday"];
+        Assert.True(BackupModes.IsFullScan(null, BackupModes.Custom, null, wednesday, days, null));
+        Assert.False(BackupModes.IsFullScan(null, BackupModes.Custom, null, thursday, days, null));
+        Assert.True(BackupModes.IsFullScan(null, BackupModes.Custom, null, thursday, days, 19));
+        Assert.False(BackupModes.IsFullScan(BackupModes.Incremental, BackupModes.Custom, null, wednesday, days, null));
+        Assert.True(BackupModes.IsKnown(BackupModes.Custom));
+    }
+
+    [Fact]
+    public void CustomDailyFullIsTheFirstBackupOfEachDay()
+    {
+        var policy = new BackupPolicyDocument
+        {
+            PolicyId = "p1",
+            PolicyVersionId = "v1",
+            EffectiveHash = "h1",
+            Schedule = new BackupSchedule(),
+            Repository = new BackupRepositoryRef { RepositoryId = "r1", StoragePoolId = "s1" },
+            BackupMode = BackupModes.Custom,
+            FullBackupDaily = true
+        };
+        var morning = new DateTimeOffset(2026, 11, 19, 9, 0, 0, TimeSpan.Zero);
+        Assert.True(BackupModes.IsFullScan(null, policy, morning, lastFullLocalDate: null));
+        Assert.True(BackupModes.IsFullScan(null, policy, morning, DateOnly.FromDateTime(morning.DateTime.AddDays(-1))));
+        Assert.False(BackupModes.IsFullScan(null, policy, morning.AddHours(1), DateOnly.FromDateTime(morning.DateTime)));
+        Assert.False(BackupModes.IsFullScan(BackupModes.Incremental, policy, morning, null));
+        Assert.DoesNotContain(BackupPolicyValidator.Validate(policy), e => e.Contains("custom", StringComparison.OrdinalIgnoreCase));
+        Assert.True(BackupModes.IsKnown(BackupModes.MonthlyFull));
         Assert.True(BackupModes.IsFullScan(null, BackupModes.WeeklyFull, "monday", Monday));
     }
 
