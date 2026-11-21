@@ -9,6 +9,9 @@
   <PropertyGroup>
     <Version>0.0.0-dev</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- English only: no satellite resource folders (fr/, de/, ...). Packages like Microsoft.Data.SqlClient
+         ship them, and the deb/rpm packager flattens bin/ so equal file names collide. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <WarningsAsErrors>$(WarningsAsErrors);CA1416</WarningsAsErrors>
