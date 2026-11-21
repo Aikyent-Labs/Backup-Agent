@@ -28,6 +28,9 @@ foreach ($project in "CloudOrc.Backup.Agent", "CloudOrc.Backup.Worker", "CloudOr
         -p:Version=$Version -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=none -o $bin -nologo -v quiet
     if ($LASTEXITCODE -ne 0) { throw "publish $project failed" }
 }
+# The programs share bin\: every DLL must be the version all of them expect.
+& (Join-Path $root "scripts\check-shared-bin.ps1") -Bin $bin
+if ($LASTEXITCODE -ne 0) { throw "shared bin folder has DLL version conflicts" }
 
 Write-Host "--> publish CloudOrc.Backup.Tray"
 dotnet publish "$root\src\CloudOrc.Backup.Tray\CloudOrc.Backup.Tray.csproj" -c Release -r $rid --self-contained true `

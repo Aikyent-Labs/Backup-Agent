@@ -19,6 +19,16 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
     <!-- SqlClient's transitive 9.0.x has known advisories; take the patched 10.0 build. -->
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />
+    <!--
+      The agent, worker, watchdog and updater are published into ONE bin folder. SqlClient pulls 9.0.x
+      of these libraries; the last publish wins and the agent then crashed on start (it needs 10.0).
+      Pin the same versions the agent uses. scripts/check-shared-bin.ps1 fails the build on a mismatch.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Primitives" Version="10.0.11" />
+    <PackageReference Include="System.Configuration.ConfigurationManager" Version="10.0.5" />
+    <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.11" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.5" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Shared\PostgresLocator.cs" Link="Shared\PostgresLocator.cs" />

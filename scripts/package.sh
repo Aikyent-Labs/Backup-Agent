@@ -36,6 +36,8 @@ for project in CloudOrc.Backup.Agent CloudOrc.Backup.Worker CloudOrc.Backup.Watc
     -p:Version="$VERSION" -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=none \
     -p:GenerateDocumentationFile=false -o "$BIN" -nologo -v quiet
 done
+# The programs share bin/: every DLL must be the version all of them expect.
+pwsh -NoProfile -File "$ROOT/scripts/check-shared-bin.ps1" -Bin "$BIN"
 
 # ---- backup engine (kopia) for this RID, SHA-256 pinned
 "$ROOT/scripts/fetch-engines.sh" "$RID" "$OUT/engines"
