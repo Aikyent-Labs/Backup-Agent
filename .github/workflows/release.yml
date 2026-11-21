@@ -161,6 +161,6 @@ jobs:
           prerelease: ${{ contains(needs.version.outputs.value, '-') }}
           body: |
             CloudOrc Backup Agent ${{ needs.version.outputs.value }} - standalone backup agent for Windows, Linux and macOS.
-            Windows: CloudOrcBackupSetup.exe (GUI, or /VERYSILENT /CODE=<code>). Linux: .deb / .rpm / .tar.gz. macOS: .pkg.
+            Windows: CloudOrcBackupSetup.exe (GUI, or /VERYSILENT /TOKEN=<enrollment token>). Linux: .deb / .rpm / .tar.gz. macOS: .pkg.
             Pre-release builds are unsigned (Windows shows "Unknown publisher").
           files: artifacts/*

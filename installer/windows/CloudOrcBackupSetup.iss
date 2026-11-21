@@ -10,12 +10,11 @@
 ;          never asks for a token and never re-activates (the device identity stays in ProgramData).
 ; Install - command line / RMM / GPO (elevated):
 ;   CloudOrcBackupSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TOKEN=CLB1.xxxx   (enrollment token)
-;   CloudOrcBackupSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CODE=ABCD-1234 [/API-BASE=https://...]   (older)
 ;   CloudOrcBackupSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART   (upgrade of a connected computer)
 ;   CloudOrcBackupSetup.exe /VERYSILENT /TOKEN=ENR-...        (CloudOrc VPS zero-touch, used by the Server Agent)
 ;   CloudOrcBackupSetup.exe /VERYSILENT /COMPONENTS="agent"   (servers: no status icon)
 ; Exit codes: 0 ok, 10/11 a service did not start, 21 installed and running but NOT activated
-;             (wrong/expired code or address - activate later with "cloudorc-backup activate <CODE>").
+;             (wrong/expired/used token - activate later with "cloudorc-backup activate <TOKEN>").
 ;
 ; Installs two Windows services (LocalSystem, delayed automatic start so the boot is never slowed):
 ;   CloudOrcBackupAgent     the Backup Agent
@@ -252,38 +251,27 @@ begin
 end;
 
 procedure InitializeWizard();
-var
-  api: String;
 begin
-  // GUI flow: one page with the activation code and the CloudOrc address, both shown on the
-  // portal's "Add device" page.
+  // GUI flow: ONE field - the enrollment token from the portal's "Add device" page.
+  // The token carries the CloudOrc address, so nothing else is asked.
   CodePage := CreateInputQueryPage(wpSelectComponents,
     'Activate this computer',
     'Paste the enrollment token from the CloudOrc portal (Backup > Computers > Add device).',
-    'You can leave it empty and activate later from the status icon or with "cloudorc-backup activate <TOKEN>". ' +
-    'The address is only needed for an older activation code.');
+    'The token starts with CLB1. You can also leave it empty and activate later from the status icon ' +
+    'or with "cloudorc-backup activate <TOKEN>".');
   CodePage.Add('Enrollment token:', False);
-  CodePage.Add('CloudOrc address (only for an activation code):', False);
   CodePage.Values[0] := GetNamedParam('token');
-  if CodePage.Values[0] = '' then
-    CodePage.Values[0] := GetNamedParam('code');
-  api := GetNamedParam('api-base');
-  if api = '' then
-    api := '{#DefaultApiBase}';
-  CodePage.Values[1] := api;
 end;
 
-// The enrollment token (CLB1....) or an older activation code, from the page or the command line.
+// The enrollment token (CLB1....) from the page or the command line (/TOKEN=).
 function ActivationCode(): String;
 begin
   if WizardSilent() or (CodePage = nil) then
-  begin
-    Result := Trim(GetNamedParam('token'));
-    if not IsEnrollmentToken(Result) then
-      Result := Trim(GetNamedParam('code'));
-  end
+    Result := Trim(GetNamedParam('token'))
   else
     Result := Trim(CodePage.Values[0]);
+  if not IsEnrollmentToken(Result) then
+    Result := '';
 end;
 
 // Upgrade of an already connected computer: skip the token page.
@@ -292,12 +280,10 @@ begin
   Result := (CodePage <> nil) and (PageID = CodePage.ID) and IsAlreadyActivated();
 end;
 
+// CloudOrc address kept for "activate later" (the token brings its own address).
 function ApiAddress(): String;
 begin
-  if WizardSilent() or (CodePage = nil) then
-    Result := Trim(GetNamedParam('api-base'))
-  else
-    Result := Trim(CodePage.Values[1]);
+  Result := Trim(GetNamedParam('api-base'));
   if Result = '' then
     Result := '{#DefaultApiBase}';
 end;
@@ -305,14 +291,10 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  // An enrollment token brings its own address; only an older activation code needs one.
   if (CodePage <> nil) and (CurPageID = CodePage.ID) and (Trim(CodePage.Values[0]) <> '') and not IsEnrollmentToken(CodePage.Values[0]) then
   begin
-    if Copy(Lowercase(Trim(CodePage.Values[1])), 1, 8) <> 'https://' then
-    begin
-      MsgBox('Paste the enrollment token from the CloudOrc portal, or for an older activation code also enter the CloudOrc address (https://...). Leave it empty to activate later.', mbError, MB_OK);
-      Result := False;
-    end;
+    MsgBox('This is not an enrollment token. Copy the token from the CloudOrc portal (Backup > Computers > Add device); it starts with CLB1. Or leave the field empty to activate later.', mbError, MB_OK);
+    Result := False;
   end;
 end;
 
@@ -377,15 +359,8 @@ begin
     end
     else if (ActivationProblem = '') and (code <> '') then
     begin
-      if IsEnrollmentToken(code) then
-      begin
-        if not RunAgent(agentExe, 'activate "' + code + '" --no-restart') then
-          ActivationProblem := 'Activation failed - the enrollment token may be wrong, expired or already used, or CloudOrc could not be reached.';
-      end
-      else if apiBase = '' then
-        ActivationProblem := 'No CloudOrc address was given, so the code could not be redeemed.'
-      else if not RunAgent(agentExe, 'activate "' + code + '" --no-restart') then
-        ActivationProblem := 'Activation failed - the code may be wrong, expired or already used, or CloudOrc could not be reached.';
+      if not RunAgent(agentExe, 'activate "' + code + '" --no-restart') then
+        ActivationProblem := 'Activation failed - the enrollment token may be wrong, expired or already used, or CloudOrc could not be reached.';
     end;
 
     InstallOrUpdateService('{#AgentServiceName}', 'CloudOrc Backup Agent',

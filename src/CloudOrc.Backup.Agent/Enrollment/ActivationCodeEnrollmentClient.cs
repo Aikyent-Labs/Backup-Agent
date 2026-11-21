@@ -43,7 +43,7 @@ public sealed class ActivationCodeEnrollmentClient(HttpClient httpClient)
         var normalized = NormalizeCode(code);
         if (normalized is null)
         {
-            return EnrollmentOutcome.Failure("That activation code is not valid. Codes are 6-8 letters/numbers.");
+            return EnrollmentOutcome.Failure("That enrollment token is not valid. Copy it again from the CloudOrc portal.");
         }
 
         var request = new ActivationEnrollRequest
@@ -70,9 +70,9 @@ public sealed class ActivationCodeEnrollmentClient(HttpClient httpClient)
             {
                 return EnrollmentOutcome.Failure(response.StatusCode switch
                 {
-                    HttpStatusCode.BadRequest or HttpStatusCode.NotFound => "That activation code was not recognised. Check it in the CloudOrc portal.",
-                    HttpStatusCode.Gone => "That activation code has expired. Create a new one in the CloudOrc portal.",
-                    HttpStatusCode.Conflict => "That activation code was already used, or this device is already registered. Create a new code.",
+                    HttpStatusCode.BadRequest or HttpStatusCode.NotFound => "That enrollment token was not recognised. Create a new one in the CloudOrc portal.",
+                    HttpStatusCode.Gone => "That enrollment token has expired. Create a new one in the CloudOrc portal.",
+                    HttpStatusCode.Conflict => "That enrollment token was already used, or this device is already registered. Create a new token.",
                     HttpStatusCode.TooManyRequests => "Too many attempts. Wait a few minutes, then create a new code.",
                     HttpStatusCode.Forbidden => "This device is not allowed to activate (entitlement or organization check failed).",
                     _ => $"Activation failed ({(int)response.StatusCode})."

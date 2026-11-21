@@ -67,7 +67,7 @@ internal sealed class StatusForm : Form
         _notActivatedPanel = NewPanel();
         _notActivatedPanel.Controls.Add(new Label
         {
-            Text = "Paste the enrollment token (or activation code) from the CloudOrc portal:",
+            Text = "Paste the enrollment token from the CloudOrc portal:",
             AutoSize = false,
             Location = new Point(0, 0),
             Size = new Size(348, 20)

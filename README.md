@@ -48,18 +48,18 @@ Antivirus friendliness:
 
 ## Install
 
-**Windows (GUI):** run `CloudOrcBackupSetup.exe` and enter the activation code from the portal.
+**Windows (GUI):** run `CloudOrcBackupSetup.exe` and paste the enrollment token from the portal (Backup > Computers > Add device).
 
 **Windows (command line, elevated):**
 
 ```
-CloudOrcBackupSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CODE=ABCD-1234 [/API-BASE=https://...] [/COMPONENTS=agent]
+CloudOrcBackupSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TOKEN=CLB1.xxxx [/COMPONENTS=agent]
 ```
 
 Or the PowerShell one-liner:
 
 ```
-& ([scriptblock]::Create((irm https://<portal>/install/backup.ps1))) -Code ABCD-1234 -DownloadBase https://<downloads>/backup-agent/<ver>
+& ([scriptblock]::Create((irm https://<portal>/install/backup.ps1))) -Token CLB1.xxxx -DownloadBase https://<downloads>/backup-agent/<ver>
 ```
 
 Setup exit codes:
@@ -73,12 +73,12 @@ Setup exit codes:
 **Linux:**
 
 ```
-curl -fsSL https://<portal>/install/backup.sh | sudo bash -s -- --code ABCD-1234 --download-base https://<downloads>/backup-agent/<ver>
+curl -fsSL https://<portal>/install/backup.sh | sudo bash -s -- --token CLB1.xxxx --download-base https://<downloads>/backup-agent/<ver>
 # or: sudo apt install ./cloudorc-backup_<ver>_amd64.deb   /   sudo dnf install ./cloudorc-backup-<ver>.x86_64.rpm
-sudo cloudorc-backup activate ABCD-1234
+sudo cloudorc-backup activate CLB1.xxxx
 ```
 
-**macOS:** open `CloudOrcBackup-<ver>-osx-arm64.pkg`, then run `sudo cloudorc-backup activate ABCD-1234`. Grant **Full Disk Access** to `bin/cloudorc-backup-worker` and `engines/kopia` (or push a PPPC profile through MDM), otherwise protected folders such as Documents and Desktop cannot be read.
+**macOS:** open `CloudOrcBackup-<ver>-osx-arm64.pkg`, then run `sudo cloudorc-backup activate CLB1.xxxx`. Grant **Full Disk Access** to `bin/cloudorc-backup-worker` and `engines/kopia` (or push a PPPC profile through MDM), otherwise protected folders such as Documents and Desktop cannot be read.
 
 ## Command line
 

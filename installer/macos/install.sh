@@ -2,7 +2,7 @@
 # CloudOrc Backup Agent - macOS installer (run from the extracted package: <pkg>/share/install.sh;
 # the .pkg runs it as its postinstall step).
 #
-#   sudo ./share/install.sh [--token CLB1.xxxx] [--code ABCD-1234 --api-base https://api.example/] [--portal-url https://portal.example/]
+#   sudo ./share/install.sh [--token CLB1.xxxx] [--api-base https://api.example/] [--portal-url https://portal.example/]
 #   On a Mac that is already connected it only upgrades the program (never re-activates).
 #
 # Installs to /Library/CloudOrc/Backup, data in "/Library/Application Support/CloudOrcBackup",
@@ -15,12 +15,16 @@ CODE="" API_BASE="" PORTAL_URL=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --token) CODE="${2:-}"; shift 2 ;;
-    --code) CODE="${2:-}"; shift 2 ;;
     --api-base) API_BASE="${2:-}"; shift 2 ;;
     --portal-url) PORTAL_URL="${2:-}"; shift 2 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
+# Only the enrollment token from the portal (Backup > Computers > Add device) activates a computer.
+if [[ -n "$CODE" && "${CODE:0:5}" != "CLB1." && "${CODE:0:5}" != "clb1." ]]; then
+  echo "--token must be the enrollment token from the CloudOrc portal (it starts with CLB1.)." >&2
+  exit 2
+fi
 [[ "$(id -u)" -eq 0 ]] || { echo "Please run with sudo." >&2; exit 3; }
 
 SRC="$(cd "$(dirname "$0")/.." && pwd)"

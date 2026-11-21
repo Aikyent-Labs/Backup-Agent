@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CloudOrc Backup Agent - Linux installer (run from the extracted package: <pkg>/share/install.sh).
 #
-#   sudo ./share/install.sh [--token CLB1.xxxx] [--code ABCD-1234 --api-base https://api.example/] [--portal-url https://portal.example/]
+#   sudo ./share/install.sh [--token CLB1.xxxx] [--api-base https://api.example/] [--portal-url https://portal.example/]
 #   On a machine that is already connected it only upgrades the program (never re-activates).
 #
 # Installs to /opt/cloudorc-backup, data in /var/lib/cloudorc-backup, two systemd services:
@@ -19,8 +19,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --token) CODE="${2:-}"; shift 2 ;;
     --token=*) CODE="${1#*=}"; shift ;;
-    --code) CODE="${2:-}"; shift 2 ;;
-    --code=*) CODE="${1#*=}"; shift ;;
     --api-base) API_BASE="${2:-}"; shift 2 ;;
     --api-base=*) API_BASE="${1#*=}"; shift ;;
     --portal-url) PORTAL_URL="${2:-}"; shift 2 ;;
@@ -29,6 +27,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
+# Only the enrollment token from the portal (Backup > Computers > Add device) activates a computer.
+if [[ -n "$CODE" && "${CODE:0:5}" != "CLB1." && "${CODE:0:5}" != "clb1." ]]; then
+  echo "--token must be the enrollment token from the CloudOrc portal (it starts with CLB1.)." >&2
+  exit 2
+fi
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Please run as root (sudo)." >&2

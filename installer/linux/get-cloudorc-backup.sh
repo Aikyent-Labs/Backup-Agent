@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CloudOrc Backup Agent - one-line installer for Linux, served by the CloudOrc portal.
 #
-#   curl -fsSL https://<portal>/install/backup.sh | sudo bash -s -- --code ABCD-1234 \
+#   curl -fsSL https://<portal>/install/backup.sh | sudo bash -s -- --token CLB1.xxxx \
 #        --download-base https://<downloads>/backup-agent/1.0.0 --api-base https://<api>/
 #
 # Detects the CPU (x86_64 / aarch64), downloads the matching package, verifies its SHA-256 against

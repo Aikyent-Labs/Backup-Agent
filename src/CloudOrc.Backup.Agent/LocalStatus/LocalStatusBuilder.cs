@@ -72,8 +72,8 @@ public static class LocalStatusBuilder
             state = LocalAgentStates.Problem;
             canReconnect = true;
             problem = i.Authorization == AuthorizationHealth.Revoked
-                ? "This device's access to CloudOrc was revoked. Create a new activation code in the portal to reconnect."
-                : "This device's authorization expired. Create a new activation code in the portal to reconnect.";
+                ? "This device's access to CloudOrc was revoked. Create a new enrollment token in the portal (Backup > Computers > Add device) to reconnect."
+                : "This device's authorization expired. Create a new enrollment token in the portal (Backup > Computers > Add device) to reconnect.";
         }
         else if (i.LastContactAt is null && i.Now - i.ServiceStartedAt < ConnectingGrace)
         {

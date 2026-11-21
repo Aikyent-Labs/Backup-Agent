@@ -1,15 +1,16 @@
 <#
   CloudOrc Backup Agent - one-line installer for Windows (served by the CloudOrc portal). Elevated PowerShell:
 
-    & ([scriptblock]::Create((irm https://<portal>/install/backup.ps1))) -Code ABCD-1234 `
-        -DownloadBase https://<downloads>/backup-agent/1.0.0 -ApiBase https://<api>/
+    & ([scriptblock]::Create((irm https://<portal>/install/backup.ps1))) -Token CLB1.xxxx `
+        -DownloadBase https://<downloads>/backup-agent/1.0.0
+
+  Without -Token it only installs or upgrades (an already connected computer stays connected).
 
   Downloads CloudOrcBackupSetup.exe, verifies its SHA-256 (and Authenticode signature when signed),
   then installs silently. Nothing runs if the checksum does not match.
 #>
 param(
-    [string]$Token = "",   # enrollment token from the portal (CLB1....): code + address in one
-    [string]$Code = "",
+    [string]$Token = "",   # enrollment token from the portal (CLB1....)
     [Parameter(Mandatory = $true)][string]$DownloadBase,
     [string]$ApiBase = "",
     [string]$PortalUrl = "",
@@ -42,8 +43,10 @@ try {
     if ($sig.Status -ne "Valid" -and $sig.Status -ne "NotSigned") { throw "Installer signature is $($sig.Status). Nothing was installed." }
 
     $setupArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$work\setup.log")
-    if ($Token) { $setupArgs += "/TOKEN=$Token" }
-    elseif ($Code) { $setupArgs += "/CODE=$Code" }
+    if ($Token) {
+        if (-not $Token.Trim().StartsWith("CLB1.", [StringComparison]::OrdinalIgnoreCase)) { throw "-Token must be the enrollment token from the CloudOrc portal (it starts with CLB1.)." }
+        $setupArgs += "/TOKEN=$($Token.Trim())"
+    }
     if ($ApiBase -and -not $Token) { $setupArgs += "/API-BASE=$ApiBase" }
     if ($PortalUrl) { $setupArgs += "/PORTAL-URL=$PortalUrl" }
     if ($Server) { $setupArgs += '/COMPONENTS=agent' }

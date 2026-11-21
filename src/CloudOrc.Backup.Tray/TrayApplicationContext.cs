@@ -176,9 +176,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void OnActivateRequested(object? sender, string rawCode)
     {
-        if (!ActivationCodeFormat.TryNormalize(rawCode, out var code))
+        if (!EnrollmentTokenInput.TryNormalize(rawCode, out var code))
         {
-            _form.ShowActivationError("Enter the 6–8 character code from the CloudOrc portal (letters and digits, e.g. ABCD-1234).");
+            _form.ShowActivationError("Paste the enrollment token from the CloudOrc portal (Backup > Computers > Add device). It starts with CLB1.");
             return;
         }
 

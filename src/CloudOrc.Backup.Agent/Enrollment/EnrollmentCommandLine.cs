@@ -51,7 +51,6 @@ public static class EnrollmentCommandLine
         if (token is null && code is null)
         {
             Console.Error.WriteLine("Usage: cloudorc-backup activate <ENROLLMENT-TOKEN>   (token from the CloudOrc portal)");
-            Console.Error.WriteLine("   or: cloudorc-backup activate ABCD-1234 [--api-base https://<control-plane>/]");
             Console.Error.WriteLine("   or: cloudorc-backup enroll --token \"ENR-...\"   (CloudOrc VPS zero-touch install)");
             return ExitCodeInvalidArgumentsValue;
         }
