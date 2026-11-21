@@ -51,10 +51,13 @@ public static class BackupCommandTypes
     /// <summary>Re-collects the machine inventory ("analyse this machine") and returns it.</summary>
     public const string InventoryRefresh = "inventory.refresh";
 
+    /// <summary>Tests a database connection and lists its databases (portal database picker). Read-only.</summary>
+    public const string DatabaseDiscover = "database.discover";
+
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
         PolicyApply, PolicyRemove, Run, Cancel, Verify, Maintenance, RestoreExecute, AgentUpdate, AgentCredentialRenew, AgentCertificateRenew,
-        DiscoveryBrowse, InventoryRefresh
+        DiscoveryBrowse, InventoryRefresh, DatabaseDiscover
     };
 
     public static bool IsTyped(string? commandType) => commandType is not null && All.Contains(commandType);
@@ -82,6 +85,18 @@ public static class AgentCapabilities
 
     /// <summary>Can back up PostgreSQL databases (pg_dump found on this machine).</summary>
     public const string PostgreSqlV1 = "workload.postgresql.v1";
+
+    /// <summary>PostgreSQL database backup/restore (advertised under the same condition as <see cref="PostgreSqlV1"/>).</summary>
+    public const string DatabasePostgreSqlV1 = "database.postgresql.v1";
+
+    /// <summary>MS SQL Server backup/restore (native BACKUP DATABASE; restore as file, new database or replace).</summary>
+    public const string DatabaseMsSqlV1 = "database.mssql.v1";
+
+    /// <summary>MySQL / MariaDB backup/restore (mysqldump found on this machine).</summary>
+    public const string DatabaseMySqlV1 = "database.mysql.v1";
+
+    /// <summary>Answers database.discover (connection test + database list).</summary>
+    public const string DatabaseDiscoverV1 = "database.discover.v1";
 
     /// <summary>Standalone CloudOrc Backup Agent (not the Server Agent): no script execution.</summary>
     public const string StandaloneBackupAgent = "agent.kind.backup";

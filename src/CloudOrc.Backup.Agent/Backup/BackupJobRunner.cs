@@ -336,7 +336,7 @@ public sealed class BackupJobRunner(
                 var root = target is null ? null : Path.GetPathRoot(target);
                 // Restores are user-initiated and time-sensitive → Balanced, still governed (§7).
                 return new RunContext(r.RepositoryId, r.Engine, spec.ResourceProfile ?? ResourceProfileNames.Balanced, 0,
-                    root is null ? [] : [root], null, spec, TimeSpan.Zero);
+                    string.IsNullOrEmpty(root) ? [] : [root], null, spec, TimeSpan.Zero);
             }
 
             case BackupJobKinds.Verify when spec.Verify is { } v && v.RepositoryId is not null && v.Engine is not null:

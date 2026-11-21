@@ -33,8 +33,9 @@ public sealed class AgentCapabilitiesProvider : IAgentCapabilitiesProvider
 
         if (options.Value.Enabled)
         {
-            // discovery.browse is registered with the backup handlers (folder picker).
+            // discovery.browse and database.discover are registered with the backup handlers.
             caps.Add(AgentCapabilities.DiscoveryV1);
+            caps.Add(AgentCapabilities.DatabaseDiscoverV1);
         }
 
         EngineVersions = ReadEngineVersions(paths.EngineDirectory);
@@ -48,6 +49,19 @@ public sealed class AgentCapabilitiesProvider : IAgentCapabilitiesProvider
         {
             // pg_dump is installed: PostgreSQL databases can be protected on this machine.
             caps.Add(AgentCapabilities.PostgreSqlV1);
+            caps.Add(AgentCapabilities.DatabasePostgreSqlV1);
+        }
+
+        if (options.Value.Enabled && caps.Contains(AgentCapabilities.BackupV1) && (OperatingSystem.IsWindows() || OperatingSystem.IsLinux()))
+        {
+            // SQL Server runs on Windows and Linux; the driver is built in (SQL Server must run on this machine).
+            caps.Add(AgentCapabilities.DatabaseMsSqlV1);
+        }
+
+        if (options.Value.Enabled && caps.Contains(AgentCapabilities.BackupV1) && Shared.MySqlLocator.Find() is not null)
+        {
+            // mysqldump / mariadb-dump is installed: MySQL and MariaDB databases can be protected.
+            caps.Add(AgentCapabilities.DatabaseMySqlV1);
         }
 
         Capabilities = caps;

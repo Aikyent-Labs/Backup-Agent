@@ -140,14 +140,39 @@ public static class BackupPolicyValidator
                 errors.Add("database.port must be 1-65535.");
             }
 
-            if (string.IsNullOrWhiteSpace(db.Username) || db.Username.Length > 63 || db.Username.IndexOfAny([' ', ';', '\'', '"']) >= 0)
+            // The logical path ("postgresql://host:port", "mysql://host:port", "mssql://host:port", "mssql://host/INSTANCE")
+            // is only an identifier; it is never opened. The connection details below are what is used.
+            if (string.IsNullOrWhiteSpace(source.Path) || source.Path.Length > 1024 || source.Path.Any(char.IsControl))
+            {
+                errors.Add("A database source needs a logical path (e.g. mssql://host/INSTANCE) of at most 1024 characters.");
+            }
+
+            // Windows authentication (MS SQL) needs no user name: the agent's service account logs in.
+            var windowsAuth = source.Kind == BackupSourceKinds.MsSql && db.UseWindowsAuth;
+            if (!windowsAuth && (string.IsNullOrWhiteSpace(db.Username) || db.Username.Length > 128 || db.Username.IndexOfAny([';', '\'', '"']) >= 0 || db.Username.Any(char.IsControl)))
             {
                 errors.Add("database.username is invalid.");
             }
 
-            if (db.Databases.Concat(db.ExcludeDatabases).Any(d => !System.Text.RegularExpressions.Regex.IsMatch(d, @"^[A-Za-z_][A-Za-z0-9_\-]{0,62}$")))
+            if (db.UseWindowsAuth && source.Kind != BackupSourceKinds.MsSql)
             {
-                errors.Add("database names may only contain letters, digits, '_' and '-'.");
+                errors.Add("database.useWindowsAuth is only supported for MS SQL Server.");
+            }
+
+            if (db.Instance is not null && (source.Kind != BackupSourceKinds.MsSql
+                    || !System.Text.RegularExpressions.Regex.IsMatch(db.Instance, @"^[A-Za-z0-9_$#\-]{1,64}$")))
+            {
+                errors.Add("database.instance must be a valid SQL Server instance name (MS SQL Server only).");
+            }
+
+            if (db.Databases.Concat(db.ExcludeDatabases).Any(d => !DatabaseNameRules.IsValid(source.Kind, d)))
+            {
+                errors.Add(source.Kind switch
+                {
+                    BackupSourceKinds.MsSql => "database names must be 1-128 characters without control characters or surrounding spaces.",
+                    BackupSourceKinds.MySql => "database names may only contain letters, digits, '_', '$' and '-'.",
+                    _ => "database names may only contain letters, digits, '_' and '-'."
+                });
             }
 
             if (db.BinDirectory is not null && !Path.IsPathFullyQualified(db.BinDirectory))

@@ -32,7 +32,9 @@ LimitNOFILE=65536
 
 # Hardening that does not get in the way of reading (backup) and writing (restore) data.
 NoNewPrivileges=yes
-PrivateTmp=yes
+# PrivateTmp must stay off: .NET named pipes are sockets in /tmp, and the watchdog (health
+# check) and the `cloudorc-backup status` CLI must reach the agent's sockets there.
+PrivateTmp=no
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=no

@@ -79,6 +79,17 @@ public sealed class ActivationService(
             var enrolled = store.TryLoad();
             var options = activationOptions.Value;
             var apiBaseText = enrolled?.ApiBaseUrl ?? options.ApiBaseUrl;
+            // The tray accepts an enrollment token too: it brings its own address.
+            if (ActivationToken.LooksLikeToken(code))
+            {
+                if (!ActivationToken.TryParse(code, out var parsed, out var tokenError))
+                {
+                    return Fail(tokenError!);
+                }
+
+                code = parsed!.Code;
+                apiBaseText = parsed.ApiBase;
+            }
             if (!EnrollmentCommandLine.TryParseApiBase(apiBaseText, options.DevelopmentAllowInsecureHttp, out var apiBase))
             {
                 return Fail("This installation does not know the CloudOrc address. Reinstall from the CloudOrc portal.");

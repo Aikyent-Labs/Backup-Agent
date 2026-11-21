@@ -77,6 +77,9 @@ public sealed class InventoryDatabase
 
     /// <summary>Linux: local "peer" login as the postgres OS user is possible (no password needed).</summary>
     [JsonPropertyName("localPeerAuth")] public bool? LocalPeerAuth { get; init; }
+
+    /// <summary>MS SQL Server named instance (e.g. "SQLEXPRESS"); null = default instance or another engine.</summary>
+    [JsonPropertyName("instance")] public string? Instance { get; init; }
 }
 
 public sealed class InventoryApplication
@@ -101,4 +104,6 @@ public static class WorkloadNames
     public const string Files = "files";
     public const string PostgreSql = "postgresql";
     public const string Tally = "tally";
+    public const string MsSql = "mssql";
+    public const string MySql = "mysql";
 }

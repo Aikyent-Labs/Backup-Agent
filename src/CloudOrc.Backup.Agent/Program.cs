@@ -216,6 +216,7 @@ if (backendOptions.Enabled)
         builder.Services.AddSingleton<ITypedCommandHandler, MaintenanceHandler>();
         builder.Services.AddSingleton<ITypedCommandHandler, RestoreExecuteHandler>();
         builder.Services.AddSingleton<ITypedCommandHandler, DiscoveryBrowseHandler>();
+        builder.Services.AddSingleton<ITypedCommandHandler, DatabaseDiscoverHandler>();
     }
 
     builder.Services.AddHostedService(sp => new BackendConnectionService(

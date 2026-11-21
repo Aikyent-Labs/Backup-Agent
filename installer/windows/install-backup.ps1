@@ -8,6 +8,7 @@
   then installs silently. Nothing runs if the checksum does not match.
 #>
 param(
+    [string]$Token = "",   # enrollment token from the portal (CLB1....): code + address in one
     [string]$Code = "",
     [Parameter(Mandatory = $true)][string]$DownloadBase,
     [string]$ApiBase = "",
@@ -41,8 +42,9 @@ try {
     if ($sig.Status -ne "Valid" -and $sig.Status -ne "NotSigned") { throw "Installer signature is $($sig.Status). Nothing was installed." }
 
     $setupArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$work\setup.log")
-    if ($Code) { $setupArgs += "/CODE=$Code" }
-    if ($ApiBase) { $setupArgs += "/API-BASE=$ApiBase" }
+    if ($Token) { $setupArgs += "/TOKEN=$Token" }
+    elseif ($Code) { $setupArgs += "/CODE=$Code" }
+    if ($ApiBase -and -not $Token) { $setupArgs += "/API-BASE=$ApiBase" }
     if ($PortalUrl) { $setupArgs += "/PORTAL-URL=$PortalUrl" }
     if ($Server) { $setupArgs += '/COMPONENTS=agent' }
 

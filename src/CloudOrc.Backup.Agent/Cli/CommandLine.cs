@@ -59,10 +59,11 @@ public static class CommandLine
                     return ExitNotElevated;
                 }
 
-                var code = args.Length > 1 && !args[1].StartsWith("--", StringComparison.Ordinal) ? args[1] : Arg(args, "--code");
+                var code = args.Length > 1 && !args[1].StartsWith("--", StringComparison.Ordinal) ? args[1] : Arg(args, "--token") ?? Arg(args, "--code");
                 if (string.IsNullOrWhiteSpace(code))
                 {
-                    Console.Error.WriteLine("Usage: cloudorc-backup activate <CODE> [--api-base https://<control-plane>/]");
+                    Console.Error.WriteLine("Usage: cloudorc-backup activate <ENROLLMENT-TOKEN>");
+                    Console.Error.WriteLine("   or: cloudorc-backup activate <CODE> [--api-base https://<control-plane>/]");
                     return ExitUsage;
                 }
 
@@ -306,7 +307,8 @@ public static class CommandLine
         Console.WriteLine("CloudOrc Backup Agent");
         Console.WriteLine();
         Console.WriteLine("Usage:");
-        Console.WriteLine("  cloudorc-backup activate <CODE> [--api-base https://<control-plane>/]   Activate this machine (code from the CloudOrc portal)");
+        Console.WriteLine("  cloudorc-backup activate <ENROLLMENT-TOKEN>                     Activate this machine (token from the CloudOrc portal)");
+        Console.WriteLine("  cloudorc-backup activate <CODE> [--api-base https://<control-plane>/]   Activate with a code and address (older way)");
         Console.WriteLine("  cloudorc-backup status [--json]                                       Connection and protection status");
         Console.WriteLine("  cloudorc-backup diagnostics                                           Support information (no secrets)");
         Console.WriteLine("  cloudorc-backup restart-service                                       Restart the agent service");

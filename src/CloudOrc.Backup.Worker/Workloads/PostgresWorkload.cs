@@ -24,12 +24,17 @@ namespace CloudOrc.Backup.Worker.Workloads;
 /// </list>
 /// </summary>
 public sealed partial class PostgresWorkload(PostgresLocator.ClientTools tools, DatabaseSourceSpec spec, string? password, BackupRetention retention, Action<string, string> log)
+    : IDatabaseWorkload
 {
     private static readonly TimeSpan ListTimeout = TimeSpan.FromSeconds(60);
 
     public sealed record DumpTarget(string Database, string VirtualPath, string FileName);
 
-    public sealed record DumpOutcome(string Database, SnapshotOutcome Snapshot, long DumpBytes);
+    public string DisplayName => "PostgreSQL";
+
+    string IDatabaseWorkload.VirtualPathFor(string database) => VirtualPathFor(spec, database);
+
+    public string FileNameFor(string database) => SafeSegment(database) + ".dump";
 
     /// <summary>Stable repository identity of one database: OS-native absolute path that never exists on disk.</summary>
     public static string VirtualRoot(DatabaseSourceSpec spec)

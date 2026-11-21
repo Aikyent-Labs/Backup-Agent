@@ -91,6 +91,12 @@ public interface IBackupEngine
     /// <summary>Deletes a snapshot (used when the producer of a streamed snapshot failed - a partial dump is never kept).</summary>
     Task<EngineOutcome> DeleteSnapshotAsync(EngineContext context, string snapshotId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The snapshot of <paramref name="sourcePath"/> written by the same backup job as <paramref name="snapshotId"/>
+    /// (a database recovery point holds one streamed snapshot per database); null when there is none.
+    /// </summary>
+    Task<string?> FindSnapshotOfSameJobAsync(EngineContext context, string snapshotId, string sourcePath, CancellationToken cancellationToken);
+
     Task DisconnectAsync(EngineContext context);
 }
 

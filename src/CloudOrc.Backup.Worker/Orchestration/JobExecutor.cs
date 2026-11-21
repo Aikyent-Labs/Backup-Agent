@@ -120,7 +120,7 @@ public static class JobExecutor
         var databasePlans = new List<DatabasePlan>();
         foreach (var source in databaseSources)
         {
-            var dbPlan = await PlanDatabaseSourceAsync(source, retention, reporter, ct).ConfigureAwait(false);
+            var dbPlan = await PlanDatabaseSourceAsync(source, retention, spec.JobId, reporter, ct).ConfigureAwait(false);
             if (dbPlan.Error is not null)
             {
                 reporter.Log("warning", dbPlan.Error);
@@ -129,8 +129,10 @@ public static class JobExecutor
             databasePlans.Add(dbPlan);
         }
 
+        // Browse manifest: every database file under the source's logical path ("mssql://host/SQLEXPRESS" → "sales.bak"),
+        // which is how the backend lists and restores database recovery points.
         var virtualFiles = databasePlans.Where(p => p.Workload is not null)
-            .SelectMany(p => p.Databases.Select(db => (PostgresWorkload.VirtualPathFor(p.Spec, db), db + ".dump")))
+            .SelectMany(p => p.Databases.Select(db => (p.Source.Path, p.Workload!.FileNameFor(db))))
             .ToList();
         var scan = SourceScanner.Scan(fileSources, spec.Paths.ManifestPath, spec.Budget.MaxManifestEntries,
             (files, bytes) => reporter.Progress(new JobProgress { FilesTotal = files, BytesTotal = bytes }), ct, virtualFiles);
@@ -229,7 +231,9 @@ public static class JobExecutor
             }
         }
 
-        // Databases: one streamed pg_dump per database (resumable per database across attempts).
+        // Databases: one engine snapshot per database (pg_dump / mysqldump streamed, SQL Server .bak).
+        // Each is reported under the source's logical path (the backend's identity of the database server);
+        // a retried job dumps its databases again rather than trusting a half-finished earlier attempt.
         long databaseBytes = 0;
         if (firstFailure?.ReasonCode != BackupReasonCodes.Cancelled)
         {
@@ -244,12 +248,6 @@ public static class JobExecutor
                 foreach (var database in dbPlan.Databases)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var virtualPath = PostgresWorkload.VirtualPathFor(dbPlan.Spec, database);
-                    if (snapshots.Any(s => s.SourcePath == virtualPath))
-                    {
-                        continue;
-                    }
-
                     var baseBytes = databaseBytes;
                     var dumped = await dbPlan.Workload.DumpDatabaseAsync(engine, ctx, database,
                         b => reporter.Progress(new JobProgress { FilesTotal = scan.Files + databaseCount, BytesRead = scan.Bytes + baseBytes + b, BytesUploaded = null }), ct).ConfigureAwait(false);
@@ -267,7 +265,7 @@ public static class JobExecutor
 
                     var dbRef = new SnapshotRef
                     {
-                        SourcePath = virtualPath,
+                        SourcePath = dbPlan.Source.Path,
                         SnapshotId = dumped.Snapshot.SnapshotId!,
                         RootObjectId = dumped.Snapshot.RootObjectId,
                         Files = 1,
@@ -278,7 +276,7 @@ public static class JobExecutor
                     reporter.SnapshotCompleted(dbRef);
                     filesChanged += 1;
                     uploaded += dumped.Snapshot.BytesUploaded ?? 0;
-                    reporter.Log("info", $"PostgreSQL database '{database}' dumped ({dumped.DumpBytes / 1048576.0:F1} MB).");
+                    reporter.Log("info", $"{dbPlan.Workload.DisplayName} database '{database}' backed up ({dumped.DumpBytes / 1048576.0:F1} MB).");
                 }
 
                 var globals = await dbPlan.Workload.DumpGlobalsAsync(engine, ctx, ct).ConfigureAwait(false);
@@ -286,7 +284,7 @@ public static class JobExecutor
                 {
                     var globalsRef = new SnapshotRef
                     {
-                        SourcePath = PostgresWorkload.VirtualPathFor(dbPlan.Spec, "_globals"),
+                        SourcePath = dbPlan.Source.Path,
                         SnapshotId = globals.Snapshot.SnapshotId!,
                         RootObjectId = globals.Snapshot.RootObjectId,
                         Files = 1,
@@ -413,21 +411,19 @@ public static class JobExecutor
             return Failed(BackupReasonCodes.RestoreTargetInvalid, "Restore parameters are incomplete.");
         }
 
-        var isDatabasePoint = restore.Database is not null || PostgresWorkload.IsVirtualDatabasePath(restore.SourceRoot);
-        if (isDatabasePoint && restore.TargetKind == RestoreTargetKinds.Original)
+        var dbRestore = restore.Database;
+        if (DatabaseRestoreModes.Validate(dbRestore) is { } dbError)
         {
-            return Failed(BackupReasonCodes.RestoreTargetInvalid,
-                "Database recovery points are restored into a folder or into a NEW database - an existing database is never overwritten.");
+            return Failed(BackupReasonCodes.RestoreTargetInvalid, dbError);
         }
 
-        RestorePlan plan;
-        try
+        var isLogicalDatabasePath = DatabaseVirtualPaths.IsLogicalDatabasePath(restore.SourceRoot);
+        var isDatabasePoint = dbRestore is not null || PostgresWorkload.IsVirtualDatabasePath(restore.SourceRoot) || isLogicalDatabasePath;
+        var loadsDatabase = isDatabasePoint && dbRestore is { Mode: DatabaseRestoreModes.NewDatabase or DatabaseRestoreModes.Replace };
+        if (isDatabasePoint && !loadsDatabase && restore.TargetKind == RestoreTargetKinds.Original)
         {
-            plan = RestorePathGuard.Plan(restore, DateTimeOffset.UtcNow);
-        }
-        catch (RestoreRejectedException ex)
-        {
-            return Failed(BackupReasonCodes.RestorePathUnsafe, ex.Message);
+            return Failed(BackupReasonCodes.RestoreTargetInvalid,
+                "A database backup file is restored into a folder; choose a target folder (or restore into a database).");
         }
 
         var connected = await engine.ConnectAsync(ctx, ct).ConfigureAwait(false);
@@ -436,6 +432,55 @@ public static class JobExecutor
             return Failed(connected.ReasonCode!, connected.Message!);
         }
 
+        // A database recovery point lists its files under the server's logical path ("mssql://host/SQLEXPRESS" →
+        // "sales.bak"); each database is its own engine snapshot, written by the same job. Find that snapshot.
+        var snapshotId = restore.EngineSnapshotId;
+        var sourceRoot = restore.SourceRoot;
+        if (isLogicalDatabasePath)
+        {
+            var resolved = await ResolveDatabaseSnapshotAsync(engine, ctx, restore, ct).ConfigureAwait(false);
+            if (resolved.Error is not null)
+            {
+                return Failed(BackupReasonCodes.RestoreTargetInvalid, resolved.Error);
+            }
+
+            (snapshotId, sourceRoot) = (resolved.SnapshotId!, resolved.VirtualPath!);
+        }
+
+        // Loading into a database: the dump only needs a scratch folder (this job's own work folder) unless the
+        // request names a usable folder to keep a copy in.
+        string? scratchDirectory = null;
+        RestorePlan plan;
+        try
+        {
+            plan = RestorePathGuard.Plan(CopyWith(restore, sourceRoot), DateTimeOffset.UtcNow);
+        }
+        catch (Exception ex) when (loadsDatabase && ex is RestoreRejectedException or ArgumentException or NotSupportedException or IOException)
+        {
+            scratchDirectory = Path.Combine(spec.Paths.WorkDirectory, "db-restore");
+            plan = new RestorePlan(scratchDirectory, restore.Selection.Count == 0 ? [null] : restore.Selection.Select(s => (string?)RestorePathGuard.NormalizeRelative(s)).ToList());
+        }
+        catch (RestoreRejectedException ex)
+        {
+            return Failed(BackupReasonCodes.RestorePathUnsafe, ex.Message);
+        }
+
+        try
+        {
+            return await RestoreIntoPlanAsync(spec, engine, ctx, reporter, restore, dbRestore, loadsDatabase, snapshotId, sourceRoot, plan, scratchDirectory, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (scratchDirectory is not null)
+            {
+                try { Directory.Delete(scratchDirectory, recursive: true); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+        }
+    }
+
+    private static async Task<WorkerResult> RestoreIntoPlanAsync(WorkerJobSpec spec, IBackupEngine engine, EngineContext ctx, IWorkerReporter reporter, RestoreExecuteParameters restore,
+        DatabaseRestoreSpec? dbRestore, bool loadsDatabase, string snapshotId, string sourceRoot, RestorePlan plan, string? scratchDirectory, CancellationToken ct)
+    {
         reporter.Stage(BackupJobStates.Restoring);
         var stopwatch = Stopwatch.StartNew();
         Directory.CreateDirectory(plan.TargetDirectory);
@@ -443,7 +488,7 @@ public static class JobExecutor
         foreach (var item in plan.Items)
         {
             ct.ThrowIfCancellationRequested();
-            var outcome = await engine.RestoreAsync(ctx, restore.EngineSnapshotId, restore.SourceRoot, item, plan.TargetDirectory, restore.Mode, ct).ConfigureAwait(false);
+            var outcome = await engine.RestoreAsync(ctx, snapshotId, sourceRoot, item, plan.TargetDirectory, restore.Mode, ct).ConfigureAwait(false);
             if (!outcome.Ok)
             {
                 return outcome.ReasonCode == BackupReasonCodes.Cancelled
@@ -484,20 +529,25 @@ public static class JobExecutor
         {
             Engine = engine.Name,
             EngineVersion = ctx.Engine.Version,
-            EngineSnapshots = [new SnapshotRef { SourcePath = restore.SourceRoot, SnapshotId = restore.EngineSnapshotId }],
+            EngineSnapshots = [new SnapshotRef { SourcePath = restore.SourceRoot!, SnapshotId = restore.EngineSnapshotId! }],
             VerificationState = unsafeLinks == 0 ? VerificationStates.Verified : VerificationStates.VerificationFailed,
             RestoredFiles = files,
             RestoredBytes = bytes,
-            RestoreTarget = plan.TargetDirectory,
+            RestoreTarget = scratchDirectory is null ? plan.TargetDirectory : null,
             DurationMs = stopwatch.ElapsedMilliseconds
         };
 
-        if (unsafeLinks == 0 && restore.Database is { Mode: DatabaseRestoreModes.NewDatabase } dbRestore)
+        if (unsafeLinks == 0 && loadsDatabase && dbRestore is not null)
         {
-            var loaded = await LoadIntoNewDatabaseAsync(dbRestore, plan.TargetDirectory, reporter, ct).ConfigureAwait(false);
-            return loaded.Ok
-                ? new WorkerResult { State = BackupJobStates.Succeeded, Message = loaded.Message, Summary = summary }
-                : new WorkerResult { State = BackupJobStates.Partial, ReasonCode = BackupReasonCodes.RestoreVerificationFailed, Message = $"The dump file was restored to {plan.TargetDirectory}, but {loaded.Message}", Summary = summary };
+            var loaded = await LoadDatabaseAsync(dbRestore, plan.TargetDirectory, spec.JobId, reporter, ct).ConfigureAwait(false);
+            if (loaded.Ok)
+            {
+                return new WorkerResult { State = BackupJobStates.Succeeded, Message = loaded.Message, Summary = summary };
+            }
+
+            return scratchDirectory is null
+                ? new WorkerResult { State = BackupJobStates.Partial, ReasonCode = BackupReasonCodes.RestoreVerificationFailed, Message = $"The backup file was restored to {plan.TargetDirectory}, but {loaded.Message}", Summary = summary }
+                : new WorkerResult { State = BackupJobStates.Failed, ReasonCode = BackupReasonCodes.RestoreVerificationFailed, Message = $"The database could not be restored: {loaded.Message}", Summary = summary };
         }
 
         return unsafeLinks == 0
@@ -549,51 +599,193 @@ public static class JobExecutor
         }
     }
 
-    private sealed record DatabasePlan(DatabaseSourceSpec Spec, PostgresWorkload? Workload, IReadOnlyList<string> Databases, string? Error);
+    private sealed record DatabasePlan(BackupSource Source, DatabaseSourceSpec Spec, IDatabaseWorkload? Workload, IReadOnlyList<string> Databases, string? Error);
 
-    private static async Task<DatabasePlan> PlanDatabaseSourceAsync(BackupSource source, BackupRetention retention, IWorkerReporter reporter, CancellationToken ct)
+    /// <summary>Routes a database source to its workload by kind (postgresql / mssql / mysql) and resolves the databases to back up.</summary>
+    private static async Task<DatabasePlan> PlanDatabaseSourceAsync(BackupSource source, BackupRetention retention, string jobId, IWorkerReporter reporter, CancellationToken ct)
     {
         var dbSpec = source.Database ?? new DatabaseSourceSpec();
-        if (source.Kind != BackupSourceKinds.PostgreSql)
+        var secret = SecretFor(reporter.CurrentGrant, dbSpec.CredentialRef);
+        IDatabaseWorkload workload;
+        string describe;
+        switch (source.Kind)
         {
-            return new DatabasePlan(dbSpec, null, [], $"Database type '{source.Kind}' is not supported by this agent version.");
+            case BackupSourceKinds.PostgreSql:
+            {
+                var tools = PostgresLocator.FindNewest(dbSpec.BinDirectory);
+                if (tools is null)
+                {
+                    return new DatabasePlan(source, dbSpec, null, [], "PostgreSQL client tools (pg_dump) were not found on this machine. Install the PostgreSQL client matching your server version.");
+                }
+
+                workload = new PostgresWorkload(tools, dbSpec, secret, retention, reporter.Log);
+                describe = $"PostgreSQL {dbSpec.Host}:{dbSpec.Port} with pg_dump {tools.Version}";
+                break;
+            }
+
+            case BackupSourceKinds.MySql:
+            {
+                var tools = MySqlLocator.Find(dbSpec.BinDirectory);
+                if (tools is null)
+                {
+                    return new DatabasePlan(source, dbSpec, null, [], "MySQL/MariaDB client tools (mysqldump) were not found on this machine. Install the MySQL or MariaDB client tools.");
+                }
+
+                workload = new MySqlWorkload(tools, dbSpec, secret, retention, reporter.Log);
+                describe = $"MySQL/MariaDB {dbSpec.Host}:{dbSpec.Port} with {Path.GetFileName(tools.DumpPath)} {tools.Version}";
+                break;
+            }
+
+            case BackupSourceKinds.MsSql:
+                workload = new MsSqlWorkload(dbSpec, secret, jobId, retention, reporter.Log);
+                describe = $"SQL Server {MsSqlSupport.DataSource(dbSpec)} ({(dbSpec.UseWindowsAuth ? "Windows authentication" : "SQL login " + dbSpec.Username)})";
+                break;
+
+            default:
+                return new DatabasePlan(source, dbSpec, null, [], $"Database type '{source.Kind}' is not supported by this agent version.");
         }
 
-        var tools = PostgresLocator.FindNewest(dbSpec.BinDirectory);
-        if (tools is null)
-        {
-            return new DatabasePlan(dbSpec, null, [], "PostgreSQL client tools (pg_dump) were not found on this machine. Install the PostgreSQL client matching your server version.");
-        }
-
-        var workload = new PostgresWorkload(tools, dbSpec, SecretFor(reporter.CurrentGrant, dbSpec.CredentialRef), retention, reporter.Log);
         var (databases, error) = await workload.ResolveDatabasesAsync(ct).ConfigureAwait(false);
-        reporter.Log("info", $"PostgreSQL {dbSpec.Host}:{dbSpec.Port} with pg_dump {tools.Version}: {databases.Count} database(s) to back up.");
-        return new DatabasePlan(dbSpec, error is null ? workload : null, databases, error);
+        reporter.Log("info", $"{describe}: {databases.Count} database(s) to back up.");
+        return new DatabasePlan(source, dbSpec, error is null ? workload : null, databases, error);
     }
 
-    private static async Task<(bool Ok, string Message)> LoadIntoNewDatabaseAsync(DatabaseRestoreSpec dbRestore, string targetDirectory, IWorkerReporter reporter, CancellationToken ct)
+    /// <summary>
+    /// Maps a backend database restore (sourceRoot = logical path, selection = ["sales.bak"]) to the engine snapshot
+    /// holding that one file: the snapshot of the database's virtual path written by the same backup job.
+    /// </summary>
+    private static async Task<(string? SnapshotId, string? VirtualPath, string? Error)> ResolveDatabaseSnapshotAsync(IBackupEngine engine, EngineContext ctx,
+        RestoreExecuteParameters restore, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(dbRestore.TargetDatabase))
+        var connection = restore.Database?.Connection;
+        if (connection is null)
         {
-            return (false, "no name was given for the new database.");
+            return (null, null, "The database connection details for this restore are missing.");
+        }
+
+        if (restore.Selection.Count != 1)
+        {
+            return (null, null, "Choose exactly one database to restore.");
+        }
+
+        string file;
+        try
+        {
+            file = RestorePathGuard.NormalizeRelative(restore.Selection[0]);
+        }
+        catch (RestoreRejectedException ex)
+        {
+            return (null, null, ex.Message);
+        }
+
+        // The logical path names the engine ("mssql://..."); it is only an identifier - the connection details come from the spec.
+        var engineName = EngineOfLogicalPath(restore.SourceRoot!);
+        var virtualPath = VirtualPathForFile(engineName, connection, file);
+        if (virtualPath is null)
+        {
+            return (null, null, $"'{file}' is not a database backup file of this recovery point.");
+        }
+
+        var found = await engine.FindSnapshotOfSameJobAsync(ctx, restore.EngineSnapshotId!, virtualPath, ct).ConfigureAwait(false);
+        return found is null
+            ? (null, null, $"The backup of '{Path.GetFileNameWithoutExtension(file)}' was not found in this recovery point.")
+            : (found, virtualPath, null);
+    }
+
+    /// <summary>"mssql://host/SQLEXPRESS" → "mssql".</summary>
+    internal static string EngineOfLogicalPath(string logicalPath)
+    {
+        var i = logicalPath.IndexOf("://", StringComparison.Ordinal);
+        return i > 0 ? logicalPath[..i].ToLowerInvariant() : BackupSourceKinds.PostgreSql;
+    }
+
+    /// <summary>Virtual (repository) path of the snapshot holding "&lt;db&gt;.dump|.sql|.bak" for this connection.</summary>
+    internal static string? VirtualPathForFile(string engineName, DatabaseSourceSpec connection, string fileName)
+    {
+        var name = Path.GetFileName(fileName);
+        var extension = Path.GetExtension(name);
+        var stem = Path.GetFileNameWithoutExtension(name);
+        if (stem.Length == 0)
+        {
+            return null;
+        }
+
+        return engineName switch
+        {
+            BackupSourceKinds.PostgreSql when name == "globals.sql" => PostgresWorkload.VirtualPathFor(connection, "_globals"),
+            BackupSourceKinds.PostgreSql when extension.Equals(".dump", StringComparison.OrdinalIgnoreCase) => PostgresWorkload.VirtualPathFor(connection, stem),
+            BackupSourceKinds.MySql when extension.Equals(".sql", StringComparison.OrdinalIgnoreCase) => MySqlWorkload.VirtualPathFor(connection, stem),
+            BackupSourceKinds.MsSql when extension.Equals(".bak", StringComparison.OrdinalIgnoreCase) =>
+                DatabaseVirtualPaths.Child(MsSqlWorkload.VirtualRoot(connection), stem),
+            _ => null
+        };
+    }
+
+    private static RestoreExecuteParameters CopyWith(RestoreExecuteParameters r, string sourceRoot) => new()
+    {
+        RestoreJobId = r.RestoreJobId,
+        RecoveryPointId = r.RecoveryPointId,
+        RepositoryId = r.RepositoryId,
+        Engine = r.Engine,
+        EngineSnapshotId = r.EngineSnapshotId,
+        SourceRoot = sourceRoot,
+        Selection = r.Selection,
+        TargetKind = r.TargetKind,
+        TargetPath = r.TargetPath,
+        Mode = r.Mode,
+        IdempotencyKey = r.IdempotencyKey,
+        Database = r.Database,
+        ApprovedBy = r.ApprovedBy
+    };
+
+    /// <summary>Loads a restored dump / .bak into a database: routed by <see cref="DatabaseRestoreSpec.Engine"/>.</summary>
+    private static async Task<(bool Ok, string Message)> LoadDatabaseAsync(DatabaseRestoreSpec dbRestore, string targetDirectory, string jobId, IWorkerReporter reporter, CancellationToken ct)
+    {
+        var extension = DatabaseRestoreModes.FileExtensionFor(dbRestore.Engine);
+        var file = Directory.EnumerateFiles(targetDirectory, "*" + extension, SearchOption.AllDirectories)
+            .FirstOrDefault(f => !Path.GetFileName(f).Equals("globals.sql", StringComparison.OrdinalIgnoreCase));
+        if (file is null)
+        {
+            return (false, $"no {extension} file was found in the restored data.");
         }
 
         var connection = dbRestore.Connection ?? new DatabaseSourceSpec();
-        var tools = PostgresLocator.FindNewest(connection.BinDirectory);
-        if (tools is null)
-        {
-            return (false, "pg_restore was not found on this machine.");
-        }
-
-        var dump = Directory.EnumerateFiles(targetDirectory, "*.dump", SearchOption.AllDirectories).FirstOrDefault();
-        if (dump is null)
-        {
-            return (false, "no .dump file was found in the restored data.");
-        }
-
+        var secret = SecretFor(reporter.CurrentGrant, connection.CredentialRef);
         reporter.Stage(BackupJobStates.Restoring);
-        var workload = new PostgresWorkload(tools, connection, SecretFor(reporter.CurrentGrant, connection.CredentialRef), new BackupRetention(), reporter.Log);
-        return await workload.RestoreIntoNewDatabaseAsync(dump, dbRestore.TargetDatabase!, ct).ConfigureAwait(false);
+        switch (dbRestore.Engine)
+        {
+            case BackupSourceKinds.MsSql:
+            {
+                var workload = new MsSqlWorkload(connection, secret, jobId, new BackupRetention(), reporter.Log);
+                return dbRestore.Mode == DatabaseRestoreModes.Replace
+                    ? await workload.ReplaceDatabaseAsync(file, dbRestore.TargetDatabase, ct).ConfigureAwait(false)
+                    : await workload.RestoreAsNewDatabaseAsync(file, dbRestore.TargetDatabase!, ct).ConfigureAwait(false);
+            }
+
+            case BackupSourceKinds.MySql:
+            {
+                var tools = MySqlLocator.Find(connection.BinDirectory);
+                if (tools is null)
+                {
+                    return (false, "the mysql client was not found on this machine.");
+                }
+
+                return await new MySqlWorkload(tools, connection, secret, new BackupRetention(), reporter.Log)
+                    .RestoreIntoNewDatabaseAsync(file, dbRestore.TargetDatabase!, ct).ConfigureAwait(false);
+            }
+
+            default:
+            {
+                var tools = PostgresLocator.FindNewest(connection.BinDirectory);
+                if (tools is null)
+                {
+                    return (false, "pg_restore was not found on this machine.");
+                }
+
+                return await new PostgresWorkload(tools, connection, secret, new BackupRetention(), reporter.Log)
+                    .RestoreIntoNewDatabaseAsync(file, dbRestore.TargetDatabase!, ct).ConfigureAwait(false);
+            }
+        }
     }
 
     private static string? SecretFor(StorageGrant grant, string? credentialRef) =>

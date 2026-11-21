@@ -67,7 +67,7 @@ internal sealed class StatusForm : Form
         _notActivatedPanel = NewPanel();
         _notActivatedPanel.Controls.Add(new Label
         {
-            Text = "Enter the activation code shown in the CloudOrc portal:",
+            Text = "Paste the enrollment token (or activation code) from the CloudOrc portal:",
             AutoSize = false,
             Location = new Point(0, 0),
             Size = new Size(348, 20)
@@ -76,8 +76,9 @@ internal sealed class StatusForm : Form
         {
             Location = new Point(0, 26),
             Size = new Size(220, 27),
-            MaxLength = 16,
-            CharacterCasing = CharacterCasing.Upper,
+            // Enrollment tokens are long and case-sensitive; plain codes are normalised by CloudOrc.
+            MaxLength = 2048,
+            CharacterCasing = CharacterCasing.Normal,
             Font = new Font("Consolas", 12F)
         };
         _activateButton = new Button { Text = "Activate", Location = new Point(232, 25), Size = new Size(100, 29) };

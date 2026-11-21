@@ -29,6 +29,7 @@ public sealed class WatchdogMonitorService(
 {
     private readonly WatchdogOptions _options = options.Value;
     private int _memoryBreaches;
+    private bool _pipeFallbackLogged;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -74,7 +75,7 @@ public sealed class WatchdogMonitorService(
         }
 
         var health = await healthClient.TryGetHealthAsync(stoppingToken).ConfigureAwait(false);
-        var healthy = health is { Status: "HEALTHY" };
+        var healthy = health is { Status: "HEALTHY" } || AliveWithoutPipe(health);
 
         if (health is not null)
         {
@@ -173,6 +174,28 @@ public sealed class WatchdogMonitorService(
         return $"pid={snapshot.ProcessId}, cpu={cpu}, workingSet={workingSetMb}, privateMemory={privateMemoryMb}";
     }
 
+    /// <summary>
+    /// The health pipe gave no answer, but the agent's liveness file is fresh: the agent is alive (the
+    /// pipe is just unreachable, e.g. a sandboxed /tmp). Never restart it then - that would kill a
+    /// running backup. A hung agent stops writing the file and is still recovered.
+    /// </summary>
+    private bool AliveWithoutPipe(object? health)
+    {
+        if (health is not null)
+        {
+            return false;
+        }
+
+        var alive = AgentLivenessFile.IsFresh(_options.LivenessFile, TimeSpan.FromSeconds(Math.Max(20, _options.LivenessMaxAgeSeconds)));
+        if (alive && !_pipeFallbackLogged)
+        {
+            _pipeFallbackLogged = true;
+            logger.LogWarning("The health pipe '{PipeName}' is not reachable, but the agent's liveness file is fresh: treating the agent as healthy.", _options.HealthPipeName);
+        }
+
+        return alive;
+    }
+
     private async Task AttemptRecoveryAsync(CancellationToken stoppingToken)
     {
         var decision = rateLimiter.Evaluate();
@@ -201,7 +224,7 @@ public sealed class WatchdogMonitorService(
         await Task.Delay(TimeSpan.FromSeconds(_options.RecoveryWaitSeconds), stoppingToken).ConfigureAwait(false);
 
         var postRecoveryHealth = await healthClient.TryGetHealthAsync(stoppingToken).ConfigureAwait(false);
-        var postRecoveryHealthy = postRecoveryHealth is { Status: "HEALTHY" };
+        var postRecoveryHealthy = postRecoveryHealth is { Status: "HEALTHY" } || AliveWithoutPipe(postRecoveryHealth);
         rateLimiter.RecordOutcome(postRecoveryHealthy);
 
         if (postRecoveryHealthy)

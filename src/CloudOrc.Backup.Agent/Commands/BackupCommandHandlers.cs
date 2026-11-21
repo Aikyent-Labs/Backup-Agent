@@ -272,9 +272,16 @@ public sealed class RestoreExecuteHandler(BackupJobStore jobs, BackupJobCoordina
             return "restoreJobId, recoveryPointId, repositoryId, engine and engineSnapshotId are required.";
         }
 
-        if (!BackupPolicyValidator.IsAllowedLocalPath(p.SourceRoot))
+        // Database recovery points are identified by their server's logical path ("mssql://host/SQLEXPRESS").
+        var isDatabaseRoot = p.Database is not null && IsLogicalDatabasePath(p.SourceRoot);
+        if (!isDatabaseRoot && !BackupPolicyValidator.IsAllowedLocalPath(p.SourceRoot))
         {
             return "sourceRoot must be an absolute local path.";
+        }
+
+        if (DatabaseRestoreModes.Validate(p.Database) is { } databaseError)
+        {
+            return databaseError;
         }
 
         if (p.TargetKind is not (RestoreTargetKinds.Original or RestoreTargetKinds.Alternate))
@@ -307,6 +314,13 @@ public sealed class RestoreExecuteHandler(BackupJobStore jobs, BackupJobCoordina
 
         return null;
     }
+
+    /// <summary>"postgresql://", "mysql://" or "mssql://" + 1-1024 printable characters.</summary>
+    public static bool IsLogicalDatabasePath(string? path) =>
+        path is { Length: > 8 and <= 1024 } && !path.Any(char.IsControl)
+        && (path.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("mysql://", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("mssql://", StringComparison.OrdinalIgnoreCase));
 
     public static bool IsSafeRelativePath(string? path)
     {

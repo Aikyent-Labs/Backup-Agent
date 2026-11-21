@@ -15,7 +15,15 @@
     <ProjectReference Include="..\CloudOrc.Agent.Contracts\CloudOrc.Agent.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- MS SQL Server backup / restore (BACKUP DATABASE ... COPY_ONLY, RESTORE). -->
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
+    <!-- SqlClient's transitive 9.0.x has known advisories; take the patched 10.0 build. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Include="..\Shared\PostgresLocator.cs" Link="Shared\PostgresLocator.cs" />
+    <Compile Include="..\Shared\MySqlLocator.cs" Link="Shared\MySqlLocator.cs" />
+    <Compile Include="..\Shared\MsSqlSupport.cs" Link="Shared\MsSqlSupport.cs" />
   </ItemGroup>
 
   <ItemGroup>

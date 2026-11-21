@@ -94,7 +94,7 @@ public sealed class BackupSource
     [JsonPropertyName("path")]
     public required string Path { get; init; }
 
-    /// <summary>"folder", "file", "tally" or "postgresql".</summary>
+    /// <summary>"folder", "file", "tally", "postgresql", "mssql" or "mysql".</summary>
     [JsonPropertyName("kind")]
     public string Kind { get; init; } = BackupSourceKinds.Folder;
 
@@ -102,7 +102,7 @@ public sealed class BackupSource
     [JsonPropertyName("excludes")]
     public IReadOnlyList<string> Excludes { get; init; } = [];
 
-    /// <summary>Connection details for kind "postgresql" (the path is then a logical name, not a folder).</summary>
+    /// <summary>Connection details for database kinds (the path is then a logical name such as "mssql://host/instance", not a folder).</summary>
     [JsonPropertyName("database")]
     public DatabaseSourceSpec? Database { get; init; }
 }
@@ -116,7 +116,13 @@ public static class BackupSourceKinds
     /// <summary>A PostgreSQL instance: every (or each listed) database dumped with pg_dump.</summary>
     public const string PostgreSql = "postgresql";
 
-    public static bool IsDatabase(string? kind) => kind == PostgreSql;
+    /// <summary>A Microsoft SQL Server instance: native BACKUP DATABASE (COPY_ONLY) per database.</summary>
+    public const string MsSql = "mssql";
+
+    /// <summary>A MySQL / MariaDB server: mysqldump per database.</summary>
+    public const string MySql = "mysql";
+
+    public static bool IsDatabase(string? kind) => kind is PostgreSql or MsSql or MySql;
 }
 
 public sealed class BackupSchedule

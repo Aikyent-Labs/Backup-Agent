@@ -2,7 +2,8 @@
 # CloudOrc Backup Agent - macOS installer (run from the extracted package: <pkg>/share/install.sh;
 # the .pkg runs it as its postinstall step).
 #
-#   sudo ./share/install.sh [--code ABCD-1234] [--api-base https://api.example/] [--portal-url https://portal.example/]
+#   sudo ./share/install.sh [--token CLB1.xxxx] [--code ABCD-1234 --api-base https://api.example/] [--portal-url https://portal.example/]
+#   On a Mac that is already connected it only upgrades the program (never re-activates).
 #
 # Installs to /Library/CloudOrc/Backup, data in "/Library/Application Support/CloudOrcBackup",
 # two launchd daemons: com.cloudorc.backup.agent and com.cloudorc.backup.watchdog.
@@ -13,6 +14,7 @@ DATA="/Library/Application Support/CloudOrcBackup"
 CODE="" API_BASE="" PORTAL_URL=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --token) CODE="${2:-}"; shift 2 ;;
     --code) CODE="${2:-}"; shift 2 ;;
     --api-base) API_BASE="${2:-}"; shift 2 ;;
     --portal-url) PORTAL_URL="${2:-}"; shift 2 ;;
@@ -49,7 +51,15 @@ for label in com.cloudorc.backup.agent com.cloudorc.backup.watchdog; do
   install -m 0644 -o root -g wheel "$PREFIX/share/$label.plist" "/Library/LaunchDaemons/$label.plist"
 done
 
-if [[ -n "$API_BASE" ]]; then
+ALREADY_ACTIVATED=0
+if [[ -f "$DATA/enrollment.json" ]]; then
+  ALREADY_ACTIVATED=1
+  CODE=""
+  echo "This Mac is already connected to CloudOrc - upgrading the program only."
+fi
+case "$CODE" in CLB1.*|clb1.*) API_BASE="" ;; esac
+
+if [[ -n "$API_BASE" && "$ALREADY_ACTIVATED" -eq 0 ]]; then
   args=(set-activation --api-base "$API_BASE")
   [[ -n "$PORTAL_URL" ]] && args+=(--portal-url "$PORTAL_URL")
   "$PREFIX/bin/cloudorc-backup" "${args[@]}"
@@ -69,5 +79,5 @@ CloudOrc Backup Agent installed.
 IMPORTANT (macOS privacy): to back up Documents, Desktop, Mail and other protected folders, allow
   /Library/CloudOrc/Backup/bin/cloudorc-backup-worker  and  /Library/CloudOrc/Backup/engines/kopia
 in System Settings > Privacy & Security > Full Disk Access (or push a PPPC profile through your MDM).
-Activate:  sudo cloudorc-backup activate <CODE>       Status:  sudo cloudorc-backup status
+Activate:  sudo cloudorc-backup activate <TOKEN>      Status:  sudo cloudorc-backup status
 MSG

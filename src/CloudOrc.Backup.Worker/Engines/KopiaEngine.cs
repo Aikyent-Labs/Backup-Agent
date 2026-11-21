@@ -372,6 +372,43 @@ public sealed partial class KopiaEngine : IBackupEngine
         return run.ExitCode == 0 ? EngineOutcome.Success : EngineErrorClassifier.FromRun("kopia", "delete", run);
     }
 
+    public async Task<string?> FindSnapshotOfSameJobAsync(EngineContext ctx, string snapshotId, string sourcePath, CancellationToken ct)
+    {
+        var list = await RunAsync(ctx, ["snapshot", "list", "--json", "--all"], ct).ConfigureAwait(false);
+        return list.ExitCode == 0 ? FindSnapshotOfSameJob(list.StdoutText, snapshotId, sourcePath) : null;
+    }
+
+    /// <summary>Pure part of <see cref="FindSnapshotOfSameJobAsync"/>: matches on the job description ("CloudOrc job &lt;id&gt;").</summary>
+    internal static string? FindSnapshotOfSameJob(string listJson, string snapshotId, string sourcePath)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(ExtractJson(listJson, '[', ']') ?? "[]");
+            var manifests = doc.RootElement.EnumerateArray().Select(m => (
+                Id: m.TryGetProperty("id", out var id) ? id.GetString() : null,
+                Path: m.TryGetProperty("source", out var s) && s.TryGetProperty("path", out var p) ? p.GetString() : null,
+                Description: m.TryGetProperty("description", out var d) ? d.GetString() : null)).ToList();
+            var given = manifests.FirstOrDefault(m => m.Id == snapshotId);
+            if (given.Id is null)
+            {
+                return null;
+            }
+
+            if (string.Equals(given.Path, sourcePath, StringComparison.OrdinalIgnoreCase))
+            {
+                return given.Id;
+            }
+
+            return string.IsNullOrEmpty(given.Description)
+                ? null
+                : manifests.LastOrDefault(m => m.Description == given.Description && string.Equals(m.Path, sourcePath, StringComparison.OrdinalIgnoreCase)).Id;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     public async Task DisconnectAsync(EngineContext ctx)
     {
         try

@@ -31,6 +31,16 @@ public sealed class MachineInventoryCollector(ILogger<MachineInventoryCollector>
             workloads.Add(WorkloadNames.PostgreSql);
         }
 
+        if (databases.Any(d => d.Engine == WorkloadNames.MsSql && d.BackupSupported))
+        {
+            workloads.Add(WorkloadNames.MsSql);
+        }
+
+        if (databases.Any(d => d.Engine == WorkloadNames.MySql && d.BackupSupported))
+        {
+            workloads.Add(WorkloadNames.MySql);
+        }
+
         if (OperatingSystem.IsWindows())
         {
             workloads.Add(WorkloadNames.Tally);
@@ -236,15 +246,45 @@ public sealed class MachineInventoryCollector(ILogger<MachineInventoryCollector>
             });
         }
 
-        // Detected only (backup support comes later) - shown in the portal as "not yet supported".
-        if (PostgresLocator.IsListening("127.0.0.1", 3306, TimeSpan.FromMilliseconds(500)) || ProcessRunning("mysqld") || ProcessRunning("mariadbd"))
+        // MySQL / MariaDB: backed up with mysqldump when the client tools are installed.
+        var mysqlListening = PostgresLocator.IsListening("127.0.0.1", 3306, TimeSpan.FromMilliseconds(500));
+        if (mysqlListening || ProcessRunning("mysqld") || ProcessRunning("mariadbd"))
         {
-            result.Add(new InventoryDatabase { Engine = "mysql", Port = 3306, Listening = true, BackupSupported = false });
+            var mysqlTools = MySqlLocator.Find();
+            result.Add(new InventoryDatabase
+            {
+                Engine = WorkloadNames.MySql,
+                Port = 3306,
+                Listening = mysqlListening,
+                ClientVersion = mysqlTools?.Version?.ToString(),
+                BackupSupported = mysqlTools is not null
+            });
         }
 
-        if (OperatingSystem.IsWindows() && ProcessRunning("sqlservr"))
+        // MS SQL Server: one entry per installed instance (native BACKUP DATABASE, no extra tools needed).
+        List<(string? Instance, int? Port)> sqlInstances = OperatingSystem.IsWindows() ? ReadSqlServerInstances() : [];
+        foreach (var (instance, port) in sqlInstances)
         {
-            result.Add(new InventoryDatabase { Engine = "mssql", Port = 1433, Listening = PostgresLocator.IsListening("127.0.0.1", 1433, TimeSpan.FromMilliseconds(500)), BackupSupported = false });
+            var probePort = port ?? 1433;
+            result.Add(new InventoryDatabase
+            {
+                Engine = WorkloadNames.MsSql,
+                Instance = instance,
+                Port = port ?? (instance is null ? 1433 : null),
+                Listening = (port is not null || instance is null) && PostgresLocator.IsListening("127.0.0.1", probePort, TimeSpan.FromMilliseconds(500)),
+                BackupSupported = true
+            });
+        }
+
+        if (sqlInstances.Count == 0 && (ProcessRunning("sqlservr") || (OperatingSystem.IsLinux() && File.Exists("/opt/mssql/bin/sqlservr"))))
+        {
+            result.Add(new InventoryDatabase
+            {
+                Engine = WorkloadNames.MsSql,
+                Port = 1433,
+                Listening = PostgresLocator.IsListening("127.0.0.1", 1433, TimeSpan.FromMilliseconds(500)),
+                BackupSupported = true
+            });
         }
 
         if (ProcessRunning("mongod"))
@@ -253,6 +293,43 @@ public sealed class MachineInventoryCollector(ILogger<MachineInventoryCollector>
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Installed SQL Server instances from HKLM\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL
+    /// (name → instance id), with the static or dynamic TCP port of IPAll. "MSSQLSERVER" = default instance (null).
+    /// </summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    internal static List<(string? Instance, int? Port)> ReadSqlServerInstances()
+    {
+        var result = new List<(string?, int?)>();
+        using var names = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL");
+        if (names is null)
+        {
+            return result;
+        }
+
+        foreach (var name in names.GetValueNames())
+        {
+            var id = names.GetValue(name) as string;
+            int? port = null;
+            if (!string.IsNullOrEmpty(id))
+            {
+                using var tcp = Registry.LocalMachine.OpenSubKey($@"SOFTWARE\Microsoft\Microsoft SQL Server\{id}\MSSQLServer\SuperSocketNetLib\Tcp\IPAll");
+                port = ParseSqlPort(tcp?.GetValue("TcpPort") as string) ?? ParseSqlPort(tcp?.GetValue("TcpDynamicPorts") as string);
+            }
+
+            result.Add((string.Equals(name, "MSSQLSERVER", StringComparison.OrdinalIgnoreCase) ? null : name, port));
+        }
+
+        return result;
+    }
+
+    /// <summary>"1433" or "1433,1434" → 1433; empty / "0" → null.</summary>
+    internal static int? ParseSqlPort(string? value)
+    {
+        var first = value?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+        return int.TryParse(first, NumberStyles.Integer, CultureInfo.InvariantCulture, out var port) && port is > 0 and <= 65535 ? port : null;
     }
 
     // ------------------------------------------------------------------ applications

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # CloudOrc Backup Agent - Linux installer (run from the extracted package: <pkg>/share/install.sh).
 #
-#   sudo ./share/install.sh [--code ABCD-1234] [--api-base https://api.example/] [--portal-url https://portal.example/]
+#   sudo ./share/install.sh [--token CLB1.xxxx] [--code ABCD-1234 --api-base https://api.example/] [--portal-url https://portal.example/]
+#   On a machine that is already connected it only upgrades the program (never re-activates).
 #
 # Installs to /opt/cloudorc-backup, data in /var/lib/cloudorc-backup, two systemd services:
 #   cloudorc-backup-agent.service     the agent
@@ -16,6 +17,8 @@ CODE="" API_BASE="" PORTAL_URL=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --token) CODE="${2:-}"; shift 2 ;;
+    --token=*) CODE="${1#*=}"; shift ;;
     --code) CODE="${2:-}"; shift 2 ;;
     --code=*) CODE="${1#*=}"; shift ;;
     --api-base) API_BASE="${2:-}"; shift 2 ;;
@@ -72,23 +75,41 @@ if command -v restorecon >/dev/null 2>&1; then
   restorecon -R "$PREFIX" >/dev/null 2>&1 || true
 fi
 
-if [[ -n "$API_BASE" ]]; then
+# Already connected (enrolled before): upgrade only - keep the identity, address and activation.
+ALREADY_ACTIVATED=0
+if [[ -f "$DATA/enrollment.json" ]]; then
+  ALREADY_ACTIVATED=1
+  CODE=""
+  echo "This machine is already connected to CloudOrc - upgrading the program only."
+fi
+# An enrollment token (CLB1....) carries its own CloudOrc address.
+if [[ "${CODE^^}" == CLB1.* ]]; then
+  API_BASE=""
+fi
+
+if [[ -n "$API_BASE" && "$ALREADY_ACTIVATED" -eq 0 ]]; then
   args=(set-activation --api-base "$API_BASE")
   [[ -n "$PORTAL_URL" ]] && args+=(--portal-url "$PORTAL_URL")
   "$PREFIX/bin/cloudorc-backup" "${args[@]}"
 fi
 
 systemctl daemon-reload
-systemctl enable --now cloudorc-backup-agent.service cloudorc-backup-watchdog.service
+systemctl enable cloudorc-backup-agent.service cloudorc-backup-watchdog.service
+# restart (not just start) so an upgrade runs the new program
+systemctl restart cloudorc-backup-agent.service cloudorc-backup-watchdog.service
 
 if [[ -n "$CODE" ]]; then
   "$PREFIX/bin/cloudorc-backup" activate "$CODE"
 fi
 
 echo
-echo "CloudOrc Backup Agent installed."
-if [[ -z "$CODE" ]]; then
-  echo "Activate this machine with the code from the CloudOrc portal:"
-  echo "  sudo cloudorc-backup activate <CODE>"
+if [[ "$ALREADY_ACTIVATED" -eq 1 ]]; then
+  echo "CloudOrc Backup Agent upgraded. This machine stays connected; no activation needed."
+else
+  echo "CloudOrc Backup Agent installed."
+  if [[ -z "$CODE" ]]; then
+    echo "Activate this machine with the enrollment token from the CloudOrc portal:"
+    echo "  sudo cloudorc-backup activate <TOKEN>"
+  fi
 fi
 echo "Status: sudo cloudorc-backup status"

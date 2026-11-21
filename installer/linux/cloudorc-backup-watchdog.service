@@ -14,7 +14,9 @@ Environment=DOTNET_GCConserveMemory=7
 Environment=DOTNET_gcServer=0
 Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
 NoNewPrivileges=yes
-PrivateTmp=yes
+# PrivateTmp must stay off: .NET named pipes are sockets in /tmp, and the watchdog (health
+# check) and the `cloudorc-backup status` CLI must reach the agent's sockets there.
+PrivateTmp=no
 
 [Install]
 WantedBy=multi-user.target

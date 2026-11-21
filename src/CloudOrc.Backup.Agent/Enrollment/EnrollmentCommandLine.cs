@@ -32,9 +32,26 @@ public static class EnrollmentCommandLine
 
         var token = ParseArgument(args, "--token");
         var code = ParseArgument(args, "--code");
+        // A CloudOrc enrollment token (CLB1....) carries the activation code AND the address.
+        string? tokenApiBase = null;
+        var candidate = ActivationToken.LooksLikeToken(token) ? token : ActivationToken.LooksLikeToken(code) ? code : null;
+        if (candidate is not null)
+        {
+            if (!ActivationToken.TryParse(candidate, out var parsed, out var tokenError))
+            {
+                Console.Error.WriteLine(tokenError);
+                return ExitCodeInvalidArgumentsValue;
+            }
+
+            code = parsed!.Code;
+            tokenApiBase = parsed.ApiBase;
+            token = null;
+        }
+
         if (token is null && code is null)
         {
-            Console.Error.WriteLine("Usage: cloudorc-backup activate ABCD-1234 [--api-base https://<control-plane>/]");
+            Console.Error.WriteLine("Usage: cloudorc-backup activate <ENROLLMENT-TOKEN>   (token from the CloudOrc portal)");
+            Console.Error.WriteLine("   or: cloudorc-backup activate ABCD-1234 [--api-base https://<control-plane>/]");
             Console.Error.WriteLine("   or: cloudorc-backup enroll --token \"ENR-...\"   (CloudOrc VPS zero-touch install)");
             return ExitCodeInvalidArgumentsValue;
         }
@@ -63,7 +80,7 @@ public static class EnrollmentCommandLine
         else
         {
             method = "activation-code";
-            apiBase = ParseArgument(args, "--api-base") ?? activationOptions.ApiBaseUrl;
+            apiBase = tokenApiBase ?? ParseArgument(args, "--api-base") ?? activationOptions.ApiBaseUrl;
             if (!TryParseApiBase(apiBase, activationOptions.DevelopmentAllowInsecureHttp, out var apiUri))
             {
                 Console.Error.WriteLine("Activation needs the CloudOrc control-plane address: pass --api-base https://... or set Activation:ApiBaseUrl.");

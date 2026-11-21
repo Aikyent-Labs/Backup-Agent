@@ -23,6 +23,9 @@
     <PackageReference Include="Serilog.Settings.Configuration" Version="9.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <!-- database.discover for MS SQL Server (connection test + database list). -->
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />
   </ItemGroup>
 
   <ItemGroup>
@@ -36,6 +39,8 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\PostgresLocator.cs" Link="Shared\PostgresLocator.cs" />
+    <Compile Include="..\Shared\MySqlLocator.cs" Link="Shared\MySqlLocator.cs" />
+    <Compile Include="..\Shared\MsSqlSupport.cs" Link="Shared\MsSqlSupport.cs" />
   </ItemGroup>
 
   <ItemGroup>

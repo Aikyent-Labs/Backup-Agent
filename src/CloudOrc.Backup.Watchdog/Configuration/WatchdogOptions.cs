@@ -57,4 +57,13 @@ public sealed class WatchdogOptions
 
     /// <summary>Consecutive samples above <see cref="MaxAgentWorkingSetMb"/> before a restart.</summary>
     public int MemoryBreachSamples { get; set; } = 30;
+
+    /// <summary>
+    /// The agent's liveness file (in the AGENT's data directory root). When the health pipe cannot be
+    /// reached but this file is fresh, the agent is alive and is not restarted.
+    /// </summary>
+    public string LivenessFile => Path.Combine(Path.GetDirectoryName(DataDirectory.TrimEnd(Path.DirectorySeparatorChar))!, "agent-liveness.json");
+
+    /// <summary>How old the liveness file may be and still count (the agent writes it every 15 s).</summary>
+    public int LivenessMaxAgeSeconds { get; set; } = 60;
 }
