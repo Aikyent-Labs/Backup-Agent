@@ -108,6 +108,7 @@ public sealed partial class KopiaEngine : IBackupEngine
             args.Add($"--enable-volume-shadow-copy={(options.UseVss ? (options.VssMode == VssModes.Always ? "always" : "when-available") : "never")}");
         }
 
+        args.AddRange(FolderCompressionArgs());
         args.Add($"--max-parallel-file-reads={Math.Max(1, ctx.Budget.Parallelism).ToString(CultureInfo.InvariantCulture)}");
         args.Add("--ignore-file-errors=true");
         args.Add("--ignore-dir-errors=true");
@@ -132,6 +133,38 @@ public sealed partial class KopiaEngine : IBackupEngine
         }
 
         return EngineOutcome.Success;
+    }
+
+    /// <summary>
+    /// Folder backups are compressed (zstd) BEFORE they are encrypted - Kopia compresses each chunk and then
+    /// encrypts it (AES-256), so the storage only ever holds encrypted data. Text-like data (Tally, ledgers,
+    /// CSV, logs, SQL) shrinks a lot; files that are already compressed are stored as they are (compressing
+    /// them again only costs CPU). Kopia de-duplicates the "never compress" list, so setting it on every
+    /// run is safe. Content already in the repository is reused as it is (it is never re-uploaded).
+    /// </summary>
+    internal const string FolderCompression = "zstd";
+
+    internal static readonly string[] NeverCompressExtensions =
+    [
+        // images
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif",
+        // video / audio
+        ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".m4v", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus",
+        // archives and packages
+        ".zip", ".rar", ".7z", ".gz", ".tgz", ".bz2", ".xz", ".zst", ".lz4", ".cab", ".jar", ".apk",
+        // documents that are ZIP files inside
+        ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".epub",
+        // already compressed
+        ".pdf",
+    ];
+
+    internal static IEnumerable<string> FolderCompressionArgs()
+    {
+        yield return $"--compression={FolderCompression}";
+        foreach (var ext in NeverCompressExtensions)
+        {
+            yield return $"--add-never-compress={ext}";
+        }
     }
 
     public async Task<SnapshotOutcome> BackupAsync(EngineContext ctx, BackupSource source, BackupRunOptions options, Action<JobProgress, double?> onProgress, CancellationToken ct)
