@@ -6,8 +6,9 @@
 ;        installer\windows\CloudOrcBackupSetup.iss
 ;
 ; Install - GUI: double-click CloudOrcBackupSetup.exe, paste the enrollment token from the portal.
-; Upgrade: run a newer setup on a computer that is already connected - it only replaces the program,
-;          never asks for a token and never re-activates (the device identity stays in ProgramData).
+; Upgrade: run a newer setup on a computer that is already connected - the token page says so; leave it
+;          empty to only replace the program (the device identity stays in ProgramData), or paste a new
+;          token to connect the computer again (e.g. after it was removed in the portal).
 ; Install - command line / RMM / GPO (elevated):
 ;   CloudOrcBackupSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TOKEN=CLB1.xxxx   (enrollment token)
 ;   CloudOrcBackupSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART   (upgrade of a connected computer)
@@ -253,12 +254,21 @@ end;
 procedure InitializeWizard();
 begin
   // GUI flow: ONE field - the enrollment token from the portal's "Add device" page.
-  // The token carries the CloudOrc address, so nothing else is asked.
-  CodePage := CreateInputQueryPage(wpSelectComponents,
-    'Activate this computer',
-    'Paste the enrollment token from the CloudOrc portal (Backup > Computers > Add device).',
-    'The token starts with CLB1. You can also leave it empty and activate later from the status icon ' +
-    'or with "cloudorc-backup activate <TOKEN>".');
+  // The token carries the CloudOrc address, so nothing else is asked. The page is ALWAYS shown:
+  // an already connected computer can leave it empty (update only) or connect again with a new token
+  // (e.g. after it was removed in the portal or its earlier activation did not finish).
+  if IsAlreadyActivated() then
+    CodePage := CreateInputQueryPage(wpSelectComponents,
+      'This computer is already connected',
+      'This computer is already connected to CloudOrc. Leave the token empty to only update the Backup Agent.',
+      'To connect it again (for example after it was removed in the portal), paste a new enrollment token ' +
+      'from the CloudOrc portal (Backup > Computers > Add device). The token starts with CLB1.')
+  else
+    CodePage := CreateInputQueryPage(wpSelectComponents,
+      'Activate this computer',
+      'Paste the enrollment token from the CloudOrc portal (Backup > Computers > Add device).',
+      'The token starts with CLB1. You can also leave it empty and activate later from the status icon ' +
+      'or with "cloudorc-backup activate <TOKEN>".');
   CodePage.Add('Enrollment token:', False);
   CodePage.Values[0] := GetNamedParam('token');
 end;
@@ -277,7 +287,8 @@ end;
 // Upgrade of an already connected computer: skip the token page.
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  Result := (CodePage <> nil) and (PageID = CodePage.ID) and IsAlreadyActivated();
+  // Never skipped: a connected computer may need a new token (see InitializeWizard).
+  Result := False;
 end;
 
 // CloudOrc address kept for "activate later" (the token brings its own address).
@@ -347,11 +358,9 @@ begin
     if IsEnrollmentToken(token) then
       token := '';  // CLB1 tokens are redeemed by "activate" below; ENR-... tokens by "enroll".
     code := ActivationCode();
+    // Already connected: no token = update only; a new enrollment token connects it again.
     if alreadyActivated then
-    begin
       token := '';
-      code := '';
-    end;
     if (ActivationProblem = '') and (token <> '') then
     begin
       if not RunAgent(agentExe, 'enroll --token "' + token + '"') then
