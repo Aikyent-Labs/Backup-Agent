@@ -24,6 +24,7 @@ public sealed class GovernorSession : IAsyncDisposable
     private ResourceSample? _latest;
     private long _lastCpuTime;
     private long _lastCpuTicks;
+    private bool _haveCpuBaseline;
     private bool _diskCapWarned;
     private bool _diskCapAvailable = true;
 
@@ -144,10 +145,13 @@ public sealed class GovernorSession : IAsyncDisposable
         var usage = _job.QueryUsage();
         var nowTicks = Stopwatch.GetTimestamp();
         var wall100Ns = (nowTicks - _lastCpuTicks) * 10_000_000.0 / Stopwatch.Frequency;
-        double? workerCpu = wall100Ns > 0 && _lastCpuTime > 0
-            ? Math.Round((usage.TotalCpuTime100Ns - _lastCpuTime) / (wall100Ns * Environment.ProcessorCount) * 100, 1)
+        // An idle worker can have used exactly 0 CPU time at the first sample, so "0" must not mean
+        // "no earlier reading" (that left WorkerCpuPercent empty for an idle worker).
+        double? workerCpu = wall100Ns > 0 && _haveCpuBaseline
+            ? Math.Round(Math.Max(0, usage.TotalCpuTime100Ns - _lastCpuTime) / (wall100Ns * Environment.ProcessorCount) * 100, 1)
             : null;
         _lastCpuTime = usage.TotalCpuTime100Ns;
+        _haveCpuBaseline = true;
         _lastCpuTicks = nowTicks;
 
         using var self = Process.GetCurrentProcess();

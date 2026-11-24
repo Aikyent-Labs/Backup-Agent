@@ -84,7 +84,7 @@ public static class DataDirectoryAcl
                 }
 
                 var sid = (SecurityIdentifier)rule.IdentityReference;
-                if (sid.Equals(System) || sid.Equals(Administrators) || sid.Equals(self.User)
+                if (sid.Equals(System) || sid.Equals(Administrators) || (self.User is { } me && sid.Equals(me))
                     || sid.IsWellKnown(WellKnownSidType.CreatorOwnerSid)
                     || sid.Value == "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464") // TrustedInstaller
                 {
