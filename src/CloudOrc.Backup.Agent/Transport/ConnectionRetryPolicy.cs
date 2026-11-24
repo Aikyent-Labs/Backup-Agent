@@ -25,8 +25,18 @@ public sealed class ConnectionRetryPolicy
 {
     public const int UnauthorizedBeforeExpired = 5;
     public const int ForbiddenBeforeStop = 3;
-    public static readonly TimeSpan ExpiredRetryDelay = TimeSpan.FromMinutes(15);
-    public static readonly TimeSpan RevokedRetryDelay = TimeSpan.FromHours(1);
+    /// <summary>
+    /// Slow retries once the credential looks expired: 1 → 2 → 5 minutes (then every 5). A backend that
+    /// briefly does not know the device (restart, wrong database, failover) must not leave a working
+    /// computer "offline" for a quarter of an hour; a really expired credential costs one call per 5 min.
+    /// </summary>
+    public static readonly TimeSpan[] ExpiredRetryDelays = [TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5)];
+
+    /// <summary>Longest wait between retries with an expired credential.</summary>
+    public static readonly TimeSpan ExpiredRetryDelay = TimeSpan.FromMinutes(5);
+
+    /// <summary>After a 403 (revoked) - checked twice more, 10 minutes apart, then reconnecting stops (§8).</summary>
+    public static readonly TimeSpan RevokedRetryDelay = TimeSpan.FromMinutes(10);
 
     private int _consecutiveUnauthorized;
     private int _consecutiveForbidden;
@@ -55,7 +65,8 @@ public sealed class ConnectionRetryPolicy
                 if (_consecutiveUnauthorized >= UnauthorizedBeforeExpired)
                 {
                     Authorization = AuthorizationHealth.Expired;
-                    return new ReconnectDecision(ExpiredRetryDelay, false, renewalAvailable, Authorization,
+                    var step = Math.Min(_consecutiveUnauthorized - UnauthorizedBeforeExpired, ExpiredRetryDelays.Length - 1);
+                    return new ReconnectDecision(ExpiredRetryDelays[step], false, renewalAvailable, Authorization,
                         "Authorization expired - reconnect this device from the CloudOrc portal");
                 }
 

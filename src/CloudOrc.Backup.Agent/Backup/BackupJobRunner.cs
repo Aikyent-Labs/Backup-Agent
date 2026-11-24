@@ -413,6 +413,7 @@ public sealed class BackupJobRunner(
             {
                 Profile = budget.Profile,
                 Parallelism = budget.Parallelism,
+                UploadParallelism = budget.UploadParallelism > 0 ? budget.UploadParallelism : budget.Parallelism,
                 MaxUploadBytesPerSecond = budget.MaxUploadBytesPerSecond,
                 GoMaxProcs = budget.GoMaxProcs,
                 GoMemoryLimitMb = budget.GoMemoryLimitMb,
@@ -813,4 +814,11 @@ public sealed class BackupJobRunner(
     /// <summary>Called by the scheduler when a newer slot replaces an older queued run.</summary>
     public void Supersede(BackupJobRecord job) =>
         Finish(job, BackupJobStates.Cancelled, BackupReasonCodes.Superseded, "Replaced by a newer scheduled run.", CancelledEvent(job), null);
+
+    /// <summary>
+    /// A scheduled (or catch-up) run whose slot is already covered by a backup that started after it
+    /// (e.g. "Back up now" pressed after the missed slot) is not run again straight away.
+    /// </summary>
+    public void SkipCovered(BackupJobRecord job) =>
+        Finish(job, BackupJobStates.Cancelled, BackupReasonCodes.Superseded, "Skipped: a backup already ran after this scheduled time.", CancelledEvent(job), null);
 }

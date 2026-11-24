@@ -27,8 +27,33 @@ public class ConnectionRetryPolicyTests
         }
 
         Assert.Equal(AuthorizationHealth.Expired, last.Authorization);
-        Assert.Equal(ConnectionRetryPolicy.ExpiredRetryDelay, last.Delay);
+        Assert.Equal(TimeSpan.FromMinutes(1), last.Delay);
         Assert.False(last.StopReconnecting);
+
+        // 1 → 2 → 5 minutes, then stays at 5 (never the old 15-minute silence).
+        Assert.Equal(TimeSpan.FromMinutes(2), policy.OnFailure(HttpStatusCode.Unauthorized, null, false).Delay);
+        Assert.Equal(TimeSpan.FromMinutes(5), policy.OnFailure(HttpStatusCode.Unauthorized, null, false).Delay);
+        Assert.Equal(ConnectionRetryPolicy.ExpiredRetryDelay, policy.OnFailure(HttpStatusCode.Unauthorized, null, false).Delay);
+    }
+
+    [Fact]
+    public void ReconnectingAfterExpired_StartsAgainFromTheShortDelay()
+    {
+        var policy = new ConnectionRetryPolicy();
+        for (var i = 0; i < ConnectionRetryPolicy.UnauthorizedBeforeExpired + 3; i++)
+        {
+            policy.OnFailure(HttpStatusCode.Unauthorized, null, false);
+        }
+
+        policy.OnConnected();
+        Assert.Equal(AuthorizationHealth.Ok, policy.Authorization);
+        ReconnectDecision d = null!;
+        for (var i = 0; i < ConnectionRetryPolicy.UnauthorizedBeforeExpired; i++)
+        {
+            d = policy.OnFailure(HttpStatusCode.Unauthorized, null, false);
+        }
+
+        Assert.Equal(TimeSpan.FromMinutes(1), d.Delay);
     }
 
     [Fact]

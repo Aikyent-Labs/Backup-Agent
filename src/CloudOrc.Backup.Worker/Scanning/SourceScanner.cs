@@ -48,7 +48,7 @@ public static class SourceScanner
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var root = Path.GetFullPath(source.Path);
-                var excludes = new GlobMatcher(source.Excludes);
+                var excludes = new GlobMatcher(Engines.DefaultExcludes.With(source.Excludes));
 
                 if (File.Exists(root))
                 {

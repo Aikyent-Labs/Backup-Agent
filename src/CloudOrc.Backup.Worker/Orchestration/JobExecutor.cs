@@ -174,7 +174,7 @@ public static class JobExecutor
                 continue;
             }
 
-            var perSource = options with { Excludes = source.Excludes };
+            var perSource = options with { Excludes = Engines.DefaultExcludes.With(source.Excludes) };
 
             var prepared = await engine.PrepareSourceAsync(ctx, source, retention, perSource, ct).ConfigureAwait(false);
             if (!prepared.Ok)

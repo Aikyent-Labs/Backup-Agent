@@ -72,6 +72,11 @@ public sealed class BackupJobCoordinator(
                 continue;
             }
 
+            if (TrySkipCovered(job))
+            {
+                continue;
+            }
+
             using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
             lock (_sync)
             {
@@ -134,6 +139,42 @@ public sealed class BackupJobCoordinator(
             logger.LogError(ex, "Startup job reconciliation failed.");
         }
     }
+
+    /// <summary>
+    /// A scheduled backup whose slot is already covered - another backup succeeded that started at or
+    /// after that slot (e.g. "Back up now" after a missed slot) - is closed instead of running a second
+    /// backup straight after the first. Manual / server-requested jobs have no slot and always run.
+    /// </summary>
+    private bool TrySkipCovered(BackupJobRecord job)
+    {
+        if (job.Kind != BackupJobKinds.Backup || job.ScheduledSlot is not { } slot)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!IsCoveredByLaterBackup(job, jobs.GetRecent(50)))
+            {
+                return false;
+            }
+
+            logger.LogInformation("Skipping scheduled job {JobId}: a backup already ran after its slot {Slot:O}.", job.JobId, slot);
+            runner.SkipCovered(job);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not check/skip scheduled job {JobId}; running it.", job.JobId);
+            return false;
+        }
+    }
+
+    /// <summary>True when another backup succeeded that started at or after this scheduled job's slot.</summary>
+    public static bool IsCoveredByLaterBackup(BackupJobRecord job, IEnumerable<BackupJobRecord> recent) =>
+        job.Kind == BackupJobKinds.Backup && job.ScheduledSlot is { } slot
+        && recent.Any(j => j.JobId != job.JobId && j.Kind == BackupJobKinds.Backup && j.State == BackupJobStates.Succeeded
+                           && j.StartedAt is { } started && started >= slot);
 
     private async Task SleepUntilNextAsync(CancellationToken stoppingToken)
     {

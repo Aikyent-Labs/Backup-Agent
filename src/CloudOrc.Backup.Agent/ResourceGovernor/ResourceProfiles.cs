@@ -32,6 +32,14 @@ public sealed record ResourceBudget
     public long? MaxUploadBytesPerSecond { get; init; }
 
     public required int Parallelism { get; init; }
+
+    /// <summary>
+    /// Concurrent uploads to storage (Kopia writers). Network-bound, so it is decoupled from CPU/disk
+    /// parallelism: CPU stays capped by GoMaxProcs + the Job Object, disk by max-parallel-file-reads.
+    /// Measured 2026-11-24: one connection to CloudOrc storage ~0.45 MB/s, 8 connections ~2.2 MB/s.
+    /// </summary>
+    public int UploadParallelism { get; init; }
+
     public required int GoMaxProcs { get; init; }
     public required JobPriority Priority { get; init; }
 
@@ -72,6 +80,7 @@ public static class ResourceProfiles
                 MaxDiskBytesPerSecond = 25 * Mb,
                 MaxUploadBytesPerSecond = 2_500_000, // ~20 Mbit/s unless the lease says less
                 Parallelism = 1,
+                UploadParallelism = 2,
                 GoMaxProcs = 1,
                 Priority = JobPriority.Idle,
                 AllowAdaptivePause = true,
@@ -87,6 +96,7 @@ public static class ResourceProfiles
                 MaxDiskBytesPerSecond = 80 * Mb,
                 MaxUploadBytesPerSecond = null,
                 Parallelism = Math.Clamp(cores / 2, 1, 4),
+                UploadParallelism = 8,
                 GoMaxProcs = Math.Clamp(cores / 2, 1, 4),
                 Priority = JobPriority.BelowNormal,
                 AllowAdaptivePause = false,
@@ -102,6 +112,7 @@ public static class ResourceProfiles
                 MaxDiskBytesPerSecond = null,
                 MaxUploadBytesPerSecond = null,
                 Parallelism = Math.Clamp(cores - 1, 1, 16),
+                UploadParallelism = 16,
                 GoMaxProcs = Math.Clamp(cores - 1, 1, 16),
                 Priority = JobPriority.Normal,
                 AllowAdaptivePause = false,
@@ -121,6 +132,12 @@ public static class ResourceProfiles
         }
 
         var parallel = lease.MaxParallel is > 0 ? Math.Min(budget.Parallelism, lease.MaxParallel.Value) : budget.Parallelism;
+        var uploads = Math.Max(1, budget.UploadParallelism > 0 ? budget.UploadParallelism : budget.Parallelism);
+        if (lease.MaxParallel is > 0)
+        {
+            uploads = Math.Min(uploads, Math.Max(lease.MaxParallel.Value, parallel));
+        }
+
         long? upload = budget.MaxUploadBytesPerSecond;
         if (lease.MaxUploadMbps is > 0)
         {
@@ -128,6 +145,6 @@ public static class ResourceProfiles
             upload = upload is null ? leaseBytes : Math.Min(upload.Value, leaseBytes);
         }
 
-        return budget with { Parallelism = parallel, GoMaxProcs = Math.Min(budget.GoMaxProcs, Math.Max(1, parallel)), MaxUploadBytesPerSecond = upload };
+        return budget with { Parallelism = parallel, UploadParallelism = uploads, GoMaxProcs = Math.Min(budget.GoMaxProcs, Math.Max(1, parallel)), MaxUploadBytesPerSecond = upload };
     }
 }

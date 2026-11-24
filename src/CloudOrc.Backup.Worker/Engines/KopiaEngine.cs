@@ -167,6 +167,13 @@ public sealed partial class KopiaEngine : IBackupEngine
         }
     }
 
+    /// <summary>
+    /// Kopia writers for a backup: network-bound, so more than the CPU/disk parallelism (GOMAXPROCS and
+    /// max-parallel-file-reads keep CPU and disk bounded). Older agents send no value: same as Parallelism.
+    /// </summary>
+    public static int UploadParallelism(WorkerBudget budget) =>
+        Math.Clamp(Math.Max(budget.Parallelism, budget.UploadParallelism), 1, 32);
+
     public async Task<SnapshotOutcome> BackupAsync(EngineContext ctx, BackupSource source, BackupRunOptions options, Action<JobProgress, double?> onProgress, CancellationToken ct)
     {
         var lastBytes = 0L;
@@ -175,7 +182,7 @@ public sealed partial class KopiaEngine : IBackupEngine
         ProgressCounts? counts = null;
 
         var run = await RunAsync(ctx,
-            ["snapshot", "create", source.Path, "--json", $"--parallel={Math.Max(1, ctx.Budget.Parallelism).ToString(CultureInfo.InvariantCulture)}",
+            ["snapshot", "create", source.Path, "--json", $"--parallel={UploadParallelism(ctx.Budget).ToString(CultureInfo.InvariantCulture)}",
              $"--description=CloudOrc job {ctx.JobId}", $"--tags=cloudorc-job:{ctx.JobId}", "--progress", "--progress-update-interval=5s",
              .. (options.FullScan ? new[] { "--force-hash=100" } : [])],
             ct,

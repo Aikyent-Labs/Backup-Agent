@@ -109,6 +109,9 @@ public sealed class WorkerBudget
 {
     [JsonPropertyName("profile")] public required string Profile { get; init; }
     [JsonPropertyName("parallelism")] public int Parallelism { get; init; } = 1;
+
+    /// <summary>Concurrent uploads to storage; 0 = same as Parallelism (older agents).</summary>
+    [JsonPropertyName("uploadParallelism")] public int UploadParallelism { get; init; }
     [JsonPropertyName("maxUploadBytesPerSecond")] public long? MaxUploadBytesPerSecond { get; init; }
 
     /// <summary>GOMAXPROCS for the Go engines (Kopia/Restic/rclone are all Go programs).</summary>
